@@ -1,18 +1,16 @@
-# MAX Video Downloader - Native Host
+# MAX Video Downloader - CoApp
 
-<div align="center">
-
-**Native companion application for MAX Video Downloader browser extension**
+**Companion application for MAX Video Downloader browser extension**
 
 Cross-platform video processing engine with FFmpeg integration for downloading HLS, DASH, and direct media files.
 
-</div>
-
 ## Overview
 
-This is the native messaging host component of MAX Video Downloader. It handles video processing, format conversion, and file system operations that cannot be performed directly by browser extensions due to security restrictions.
+This is the companion app (CoApp) component of MAX Video Downloader. This is not a standalone application - it only works as a companion to the browser extension and has no user interface of its own.
 
-The native host communicates with the browser extension through Chrome's native messaging API and provides:
+The CoApp handles video processing, format conversion, and file system operations that cannot be performed directly by browser extensions due to security restrictions.
+
+It communicates with the browser extension through Chrome's native messaging API and provides:
 
 - Video stream analysis and quality detection
 - HLS (.m3u8) and DASH (.mpd) manifest processing  
@@ -22,9 +20,7 @@ The native host communicates with the browser extension through Chrome's native 
 
 ## Browser Extension
 
-Install the browser extension to use this native host:
-
-<div align="center">
+Install the browser extension to use this CoApp:
 
 <table>
 <tr>
@@ -38,65 +34,37 @@ Install the browser extension to use this native host:
 <td align="center" width="200">
 <img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/firefox/firefox_48x48.png" width="48" height="48" alt="Firefox"><br>
 <strong>Firefox Add-ons</strong><br>
-<img src="https://img.shields.io/badge/Coming_Soon-FF7139?style=for-the-badge&logo=firefox&logoColor=white" alt="Coming Soon">
-<br><small><em>Coming Soon</em></small>
+<img src="https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=firefox&logoColor=999999" alt="Coming Soon">
 </td>
 <td align="center" width="200">
 <img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/edge/edge_48x48.png" width="48" height="48" alt="Edge"><br>
 <strong>Edge Add-ons</strong><br>
-<img src="https://img.shields.io/badge/Coming_Soon-0078D4?style=for-the-badge&logo=microsoft-edge&logoColor=white" alt="Coming Soon">
-<br><small><em>Coming Soon</em></small>
+<img src="https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=microsoft-edge&logoColor=999999" alt="Coming Soon">
 </td>
 </tr>
 </table>
 
-</div>
-
 ## Downloads
 
-Download the native host for your platform:
+Download the CoApp for your platform:
 
-### macOS
-
-<div align="center">
-
-| Architecture | Download | Status |
-|--------------|----------|--------|
-| **Apple Silicon (M1/M2/M3)** | <a href="https://github.com/Suwot/mvd-coapp/releases/latest/download/MaxVideoDownloader-mac-arm64.dmg"><img src="https://img.shields.io/badge/Download_DMG-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS ARM64"></a> | ✅ Available |
-| **Intel (x64)** | <img src="https://img.shields.io/badge/Coming_Soon-6C6C6C?style=for-the-badge&logo=apple&logoColor=white" alt="Coming Soon"> | 🔄 Coming Soon |
-
-</div>
-
-### Windows
-
-<div align="center">
-
-| Architecture | Download | Status |
-|--------------|----------|--------|
-| **x64** | <img src="https://img.shields.io/badge/Coming_Soon-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Coming Soon"> | 🔄 Coming Soon |
-| **ARM64** | <img src="https://img.shields.io/badge/Coming_Soon-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Coming Soon"> | 🔄 Coming Soon |
-
-</div>
-
-### Linux
-
-<div align="center">
-
-| Architecture | Download | Status |
-|--------------|----------|--------|
-| **x64** | <img src="https://img.shields.io/badge/Coming_Soon-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Coming Soon"> | 🔄 Coming Soon |
-| **ARM64** | <img src="https://img.shields.io/badge/Coming_Soon-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Coming Soon"> | 🔄 Coming Soon |
-
-</div>
+| Platform | Architecture | Download |
+|----------|-------------|----------|
+| **macOS** | Apple Silicon (M1-M4) | [![Download DMG](https://img.shields.io/badge/Download_DMG-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Suwot/mvd-coapp/releases/latest/download/MaxVideoDownloader-mac-arm64.dmg) |
+| **macOS** | Intel (x64) | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=apple&logoColor=999999) |
+| **Windows** | x64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=windows&logoColor=999999) |
+| **Windows** | ARM64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=windows&logoColor=999999) |
+| **Linux** | x64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=linux&logoColor=999999) |
+| **Linux** | ARM64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=linux&logoColor=999999) |
 
 ## Installation
 
-1. **Download** the appropriate native host for your platform
-2. **Install** the native host (automatic browser registration included)
+1. **Download** the appropriate CoApp for your platform
+2. **Install** the CoApp (automatic browser registration included)
 3. **Install** the browser extension from your browser's web store
 4. **Restart** your browser to complete the setup
 
-The native host automatically registers itself with all supported browsers during installation.
+The CoApp automatically registers itself with all supported browsers during installation.
 
 ## Supported Browsers
 
@@ -114,7 +82,7 @@ The native host automatically registers itself with all supported browsers durin
 
 ## Commands
 
-The native host supports these commands from the browser extension:
+The CoApp supports these commands from the browser extension:
 
 - `download` - Video/audio download with progress tracking
 - `get-qualities` - Stream quality analysis and metadata extraction  
@@ -123,8 +91,6 @@ The native host supports these commands from the browser extension:
 - `file-system` - Cross-platform file operations and dialogs
 
 ## Development
-
-This repository is part of the [MAX Video Downloader](https://github.com/Suwot/max-video-downloader) project.
 
 ### Build Requirements
 
@@ -153,8 +119,4 @@ This repository is part of the [MAX Video Downloader](https://github.com/Suwot/m
 
 ## License
 
-MIT License - see [LICENSE](../LICENSE) file for details.
-
-## Support
-
-For issues and support, please visit the [main project repository](https://github.com/Suwot/max-video-downloader).
+MIT License
