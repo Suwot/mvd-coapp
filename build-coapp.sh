@@ -132,6 +132,10 @@ create_macos_package() {
     cp install.sh "$macos_dir/"
     chmod +x "$macos_dir/install.sh"
     
+    # Ad-hoc sign the app bundle to reduce Gatekeeper restrictions
+    log_info "Ad-hoc signing app bundle..."
+    codesign --force --deep --sign - "$app_dir" 2>/dev/null || log_warn "Code signing failed - app will show unidentified developer warning"
+    
     # Copy icon
     local icon_source="../extension/icons/128.png"
     [[ -f "$icon_source" ]] && cp "$icon_source" "$resources_dir/AppIcon.png"
