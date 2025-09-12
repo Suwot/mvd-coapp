@@ -145,7 +145,19 @@ fi
 echo ""
 if [[ ${#installed_browsers[@]} -eq 0 ]]; then
     echo -e "${YELLOW}No supported browsers found.${NC}"
-    echo "Please install Chrome, Firefox, or another supported browser."
+    echo ""
+    echo "Please install one of these supported browsers:"
+    echo "  • Google Chrome: https://www.google.com/chrome/"
+    echo "  • Mozilla Firefox: https://www.mozilla.org/firefox/"
+    echo "  • Microsoft Edge: https://www.microsoft.com/edge"
+    echo "  • Brave Browser: https://brave.com/"
+    echo "  • Opera: https://www.opera.com/"
+    echo "  • Vivaldi: https://vivaldi.com/"
+    echo ""
+    echo "After installing, run this installer again."
+    echo ""
+    echo -e "${RED}Installation failed - no browsers detected${NC}"
+    exit 1
 else
     echo -e "${GREEN}Installation complete!${NC}"
     echo "Installed for ${#installed_browsers[@]} browser(s):"
@@ -159,5 +171,34 @@ fi
 # Show GUI dialog on macOS
 if [[ "$OSTYPE" == "darwin"* && ${#installed_browsers[@]} -gt 0 ]]; then
     browser_list=$(printf "• %s\n" "${installed_browsers[@]}")
-    osascript -e "display dialog \"MAX Video Downloader installed for ${#installed_browsers[@]} browser(s):\n\n$browser_list\" buttons {\"OK\"} default button \"OK\"" 2>/dev/null || true
+    dialog_text="MAX Video Downloader installed for ${#installed_browsers[@]} browser(s):\\n\\n$browser_list"
+
+    # Show dialog with OK and Uninstall buttons
+    echo "Showing installation confirmation dialog..."
+    
+    # Temporarily disable set -e for osascript (needed because Uninstall is cancel button)
+    set +e
+    button_clicked=$(osascript -e "tell application \"System Events\" to display dialog \"$dialog_text\" buttons {\"Uninstall\", \"OK\"} default button \"OK\" cancel button \"Uninstall\"" 2>/dev/null)
+    osascript_exit_code=$?
+    set -e
+    
+    # Check both the output and exit code
+    if [[ $osascript_exit_code -eq 0 && "$button_clicked" == "button returned:OK" ]]; then
+        # User clicked OK
+        echo "Installation confirmed. The extension should now work."
+    else
+        # User clicked Uninstall (or dialog was cancelled)
+        echo "Uninstalling MAX Video Downloader..."
+        uninstall_script="$SCRIPT_DIR/uninstall.sh"
+        if [[ -f "$uninstall_script" ]]; then
+            chmod +x "$uninstall_script"
+            "$uninstall_script"
+        else
+            echo -e "${RED}Error: uninstall.sh not found at $uninstall_script${NC}"
+            # Show error dialog on macOS
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                osascript -e "display dialog \"Error: Uninstall script not found at $uninstall_script\\n\\nPlease make sure uninstall.sh is in the same directory as install.sh.\" buttons {\"OK\"} default button \"OK\" with icon stop" 2>/dev/null || true
+            fi
+        fi
+    fi
 fi
