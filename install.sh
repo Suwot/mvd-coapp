@@ -8,10 +8,15 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BINARY_PATH="$SCRIPT_DIR/mvdcoapp"
 
-# Extension IDs
-CHROME_EXT_ID_DEV="bkblnddclhmmgjlmbofhakhhbklkcofd"
-CHROME_EXT_ID_PROD="kjinbaahkmjgkkedfdgpkkelehofieke"
-FIREFOX_EXT_ID="max-video-downloader@rostislav.dev"
+# Manifest content templates
+CHROME_ORIGINS='  "allowed_origins": [
+    "chrome-extension://bkblnddclhmmgjlmbofhakhhbklkcofd/",
+    "chrome-extension://kjinbaahkmjgkkedfdgpkkelehofieke/"
+  ]'
+
+FIREFOX_EXTENSIONS='  "allowed_extensions": [
+    "max-video-downloader@rostislav.dev"
+  ]'
 
 # Colors for output
 RED='\033[0;31m'
@@ -33,31 +38,23 @@ fi
 # Make sure binary is executable
 chmod +x "$BINARY_PATH"
 
-create_chrome_manifest() {
+create_manifest() {
     local path="$1"
+    local manifest_type="$2"
+    
+    if [[ "$manifest_type" == "firefox" ]]; then
+        local origins_block="$FIREFOX_EXTENSIONS"
+    else
+        local origins_block="$CHROME_ORIGINS"
+    fi
+    
     cat > "$path" << MANIFEST_EOF
 {
   "name": "pro.maxvideodownloader.coapp",
   "description": "MAX Video Downloader Native Host",
   "path": "$BINARY_PATH",
   "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://$CHROME_EXT_ID_DEV/",
-    "chrome-extension://$CHROME_EXT_ID_PROD/"
-  ]
-}
-MANIFEST_EOF
-}
-
-create_firefox_manifest() {
-    local path="$1"
-    cat > "$path" << MANIFEST_EOF
-{
-  "name": "pro.maxvideodownloader.coapp",
-  "description": "MAX Video Downloader Native Host",
-  "path": "$BINARY_PATH",
-  "type": "stdio",
-  "allowed_extensions": ["$FIREFOX_EXT_ID"]
+$origins_block
 }
 MANIFEST_EOF
 }
@@ -91,9 +88,9 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
             manifest_file="$manifest_dir/pro.maxvideodownloader.coapp.json"
             
             if [[ "$browser_type" == "firefox" ]]; then
-                create_firefox_manifest "$manifest_file"
+                create_manifest "$manifest_file" "firefox"
             else
-                create_chrome_manifest "$manifest_file"
+                create_manifest "$manifest_file" "chrome"
             fi
             
             echo -e "${GREEN}✓ Installed for $browser_name${NC}"
@@ -131,9 +128,9 @@ else
             manifest_file="$manifest_dir/pro.maxvideodownloader.coapp.json"
             
             if [[ "$browser_type" == "firefox" ]]; then
-                create_firefox_manifest "$manifest_file"
+                create_manifest "$manifest_file" "firefox"
             else
-                create_chrome_manifest "$manifest_file"
+                create_manifest "$manifest_file" "chrome"
             fi
             
             echo -e "${GREEN}✓ Installed for $browser_name${NC}"
