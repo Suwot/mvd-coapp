@@ -7,9 +7,6 @@ set -e
 
 VERSION=$(<VERSION)
 APP_NAME="pro.maxvideodownloader.coapp"
-CHROME_EXT_ID_DEV="bkblnddclhmmgjlmbofhakhhbklkcofd"
-CHROME_EXT_ID_PROD="kjinbaahkmjgkkedfdgpkkelehofieke"
-FIREFOX_EXT_ID="max-video-downloader@rostislav.dev"
 
 # ============================================================================
 # UTILITIES
