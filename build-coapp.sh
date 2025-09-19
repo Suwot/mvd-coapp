@@ -5,7 +5,7 @@
 
 set -e
 
-VERSION=$(node -p "require('../package.json').version")
+VERSION=$(<VERSION)
 APP_NAME="pro.maxvideodownloader.coapp"
 CHROME_EXT_ID_DEV="bkblnddclhmmgjlmbofhakhhbklkcofd"
 CHROME_EXT_ID_PROD="kjinbaahkmjgkkedfdgpkkelehofieke"

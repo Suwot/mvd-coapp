@@ -39,13 +39,16 @@ if (args.length === 0) {
 }
 
 if (args.includes('-version')) {
-    // Version is embedded at build time, or fallback to reading package.json
+    // Version is embedded at build time by pkg, or fallback for development
     const version = process.env.APP_VERSION || (() => {
         try {
-            const pkg = require('../package.json');
-            return pkg.version;
+            // Try to read VERSION file (for development/unpackaged runs)
+            const fs = require('fs');
+            const path = require('path');
+            const versionFile = path.join(__dirname, 'VERSION');
+            return fs.readFileSync(versionFile, 'utf8').trim();
         } catch {
-            return '0.1.0';
+            return 'unknown';
         }
     })();
     console.log(`Native Host v${version}`);
