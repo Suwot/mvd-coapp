@@ -1,0 +1,16 @@
+{
+  "name": "mvdcoapp",
+  "version": "0.5.3",
+  "description": "MAX Video Downloader CoApp",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "./build-coapp.sh build",
+    "dist": "./build-coapp.sh dist"
+  },
+  "dependencies": {},
+  "pkg": {
+    "scripts": "commands/**/*.js",
+    "assets": "bin/**/*"
+  }
+}

@@ -4,6 +4,13 @@
 
 Cross-platform video processing engine with FFmpeg integration for downloading HLS, DASH, and direct media files.
 
+## Files
+
+- `LICENSE.txt` - Project license (used by Windows installer)
+- `package.json` - Node.js package configuration
+- `build-coapp.sh` - Cross-platform build script
+- `resources/` - Platform-specific build resources and assets
+
 ## Overview
 
 This is the companion app (CoApp) component of MAX Video Downloader. This is not a standalone application - it only works as a companion to the browser extension and has no user interface of its own.
