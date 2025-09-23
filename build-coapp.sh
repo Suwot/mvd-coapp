@@ -123,8 +123,8 @@ create_macos_package() {
     codesign --force --deep --sign - "$app_dir" 2>/dev/null || log_warn "Code signing failed - app will show unidentified developer warning"
     
     # Copy icon
-    local icon_source="../extension/icons/128.png"
-    [[ -f "$icon_source" ]] && cp "$icon_source" "$resources_dir/AppIcon.png"
+    local icon_source="resources/mac/AppIcon.icns"
+    [[ -f "$icon_source" ]] && cp "$icon_source" "$resources_dir/AppIcon.icns"
     
     # Create Info.plist (point directly to the binary)
     cat > "$contents_dir/Info.plist" << EOF
@@ -147,7 +147,7 @@ create_macos_package() {
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconFile</key>
-    <string>AppIcon.png</string>
+    <string>AppIcon.icns</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
     <key>NSHighResolutionCapable</key>
