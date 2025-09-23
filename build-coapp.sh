@@ -5,7 +5,7 @@
 
 set -e
 
-VERSION=$(<VERSION)
+VERSION=$(node -p "require('./package.json').version")
 APP_NAME="pro.maxvideodownloader.coapp"
 
 # ============================================================================
@@ -89,14 +89,7 @@ build_binary() {
         log_warn "FFmpeg binaries not found at $ffmpeg_source"
     fi
     
-    # Copy install and uninstall scripts
-    cp install.sh "$build_dir/"
-    cp uninstall.sh "$build_dir/"
-    chmod +x "$build_dir/install.sh"
-    chmod +x "$build_dir/uninstall.sh"
-    log_info "Copied install and uninstall scripts"
-    
-    log_info "✓ Binary built: $build_dir/$binary_name"
+    log_info "✓ Binary built: $build_dir/$binary_name (self-contained installer)"
 }
 
 # ============================================================================
@@ -124,10 +117,6 @@ create_macos_package() {
     # Copy binaries
     cp "$build_dir"/* "$macos_dir/"
     chmod +x "$macos_dir"/*
-    
-    # Copy installer script
-    cp install.sh "$macos_dir/"
-    chmod +x "$macos_dir/install.sh"
     
     # Ad-hoc sign the app bundle to reduce Gatekeeper restrictions
     log_info "Ad-hoc signing app bundle..."
@@ -171,6 +160,8 @@ EOF
     
     # Installer script included for manual installation if needed
     
+    log_info "macOS .app bundle contains self-installing binary - just double-click mvdcoapp"
+    
     # Create DMG
     local dmg_name="MaxVideoDownloader-${VERSION}-${platform}.dmg"
     local temp_dmg="build/temp.dmg"
@@ -210,12 +201,11 @@ create_windows_package() {
     # Copy binaries
     cp "$build_dir"/* "$installer_dir/"
     
-    # Copy installer script and create batch wrapper
-    cp install.sh "$installer_dir/"
+    # Create batch installer that runs the binary directly
     cat > "$installer_dir/install.bat" << 'EOF'
 @echo off
 echo Running MAX Video Downloader Native Host Installer...
-bash install.sh
+mvdcoapp.exe -install
 pause
 EOF
     
@@ -244,20 +234,16 @@ create_linux_package() {
 [Desktop Entry]
 Type=Application
 Name=MAX Video Downloader
-Exec=install.sh
+Exec=mvdcoapp
 Icon=maxvideodownloader
 Categories=Network;
 EOF
-    
-    # Copy installer script
-    cp install.sh "$appdir/usr/bin/"
-    chmod +x "$appdir/usr/bin/install.sh"
     
     # Create AppRun
     cat > "$appdir/AppRun" << 'EOF'
 #!/bin/bash
 cd "$(dirname "$0")/usr/bin"
-./install.sh
+./mvdcoapp
 EOF
     chmod +x "$appdir/AppRun"
     
@@ -289,13 +275,13 @@ Examples:
   ./build-coapp.sh dist mac-arm64     # Create complete macOS installer
   ./build-coapp.sh build mac-arm64    # Just build binary
 
-Note: For installation, use install.sh after building
+Note: Installation is built into the binary - just run mvdcoapp or double-click
 EOF
 }
 
 case "${1:-help}" in
     version)
-        echo "Native Host v${VERSION}"
+        echo "MVD CoApp v${VERSION}"
         ;;
     build)
         platform=${2:-$(detect_platform)}

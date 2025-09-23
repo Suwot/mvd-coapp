@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * NativeHostMain – Main entry point for the native host application
+ * MVD CoApp – Main entry point for the native host application
  * - Initializes the native messaging host environment
- * - Establishes connection with Chrome extension
+ * - Establishes connection with browser extensions
  * - Sets up command handling and execution pipeline
  * - Coordinates services and dependency injection
  * - Manages application lifecycle and error handling
@@ -20,77 +20,57 @@ const args = process.argv.slice(2);
 
 // If no arguments (double-click), run installer
 if (args.length === 0) {
-    const { execSync } = require('child_process');
-    const path = require('path');
+    const installer = require('./lib/installer');
     
-    try {
-        // Get install script path (same directory as executable)
-        const execDir = typeof process.pkg !== 'undefined' 
-            ? path.dirname(process.execPath)
-            : path.dirname(__dirname);
-        const installScript = path.join(execDir, 'install.sh');
-        
-        execSync(`bash "${installScript}"`, { stdio: 'inherit' });
-    } catch (err) {
+    installer.install().then(() => {
+        process.exit(0);
+    }).catch(err => {
         console.error('Installation failed:', err.message);
         process.exit(1);
-    }
-    process.exit(0);
+    });
+    return;
 }
 
 if (args.includes('-version')) {
     // Version is embedded at build time by pkg, or fallback for development
     const version = process.env.APP_VERSION || (() => {
         try {
-            // Try to read VERSION file (for development/unpackaged runs)
+            // Try to read version from package.json (for development/unpackaged runs)
             const fs = require('fs');
             const path = require('path');
-            const versionFile = path.join(__dirname, 'VERSION');
-            return fs.readFileSync(versionFile, 'utf8').trim();
+            const packageJsonPath = path.join(__dirname, 'package.json');
+            const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+            return packageJson.version;
         } catch {
             return 'unknown';
         }
     })();
-    console.log(`Native Host v${version}`);
+    console.log(`MVD CoApp v${version}`);
     process.exit(0);
 }
 
 if (args.includes('-install')) {
-    const { execSync } = require('child_process');
-    const path = require('path');
+    const installer = require('./lib/installer');
     
-    try {
-        // Get install script path (same directory as executable)
-        const execDir = typeof process.pkg !== 'undefined' 
-            ? path.dirname(process.execPath)
-            : path.dirname(__dirname);
-        const installScript = path.join(execDir, 'install.sh');
-        
-        execSync(`bash "${installScript}"`, { stdio: 'inherit' });
-    } catch (err) {
+    installer.install().then(() => {
+        process.exit(0);
+    }).catch(err => {
         console.error('Installation failed:', err.message);
         process.exit(1);
-    }
-    process.exit(0);
+    });
+    return;
 }
 
 if (args.includes('-uninstall')) {
-    const { execSync } = require('child_process');
-    const path = require('path');
+    const installer = require('./lib/installer');
     
-    try {
-        // Get uninstall script path (same directory as executable)
-        const execDir = typeof process.pkg !== 'undefined' 
-            ? path.dirname(process.execPath)
-            : path.dirname(__dirname);
-        const uninstallScript = path.join(execDir, 'uninstall.sh');
-        
-        execSync(`bash "${uninstallScript}"`, { stdio: 'inherit' });
-    } catch (err) {
+    installer.uninstall().then(() => {
+        process.exit(0);
+    }).catch(err => {
         console.error('Uninstallation failed:', err.message);
         process.exit(1);
-    }
-    process.exit(0);
+    });
+    return;
 }
 // Import services directly
 const ffmpegService = require('./services/ffmpeg');

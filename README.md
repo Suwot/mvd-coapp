@@ -117,11 +117,14 @@ The CoApp supports these commands from the browser extension:
 # Create distribution package
 ./build-coapp.sh dist mac-arm64
 
-# Install system-wide
-./install.sh
+# Install system-wide (after building)
+./build/mac-arm64/mvdcoapp -install
 
 # Uninstall
-./uninstall.sh
+./build/mac-arm64/mvdcoapp -uninstall
+
+# Double-click installation
+./build/mac-arm64/mvdcoapp
 ```
 
 ## License

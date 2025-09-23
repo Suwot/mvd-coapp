@@ -24,7 +24,7 @@ class ValidateConnectionCommand extends BaseCommand {
         // Get version
         const version = process.env.APP_VERSION || (() => {
             try {
-                const pkg = require('../../package.json');
+                const pkg = require('../package.json');
                 return pkg.version;
             } catch {
                 return '0.1.0';

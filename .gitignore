@@ -6,6 +6,7 @@ host
 
 # Node modules
 node_modules/
+build-competitor.sh
 
 # OS files
 .DS_Store
