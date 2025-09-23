@@ -1,5 +1,6 @@
 # Build outputs
 build/
+dist/
 bin/
 host
 *.exe

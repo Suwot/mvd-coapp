@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# MAX Video Downloader Native Host Build System
+# MAX Video Downloader CoApp Build System
 # Creates self-contained installers for all platforms
 
 set -e
@@ -74,7 +74,7 @@ build_binary() {
     log_info "Building binary for $platform..."
     mkdir -p "$build_dir"
     
-    # Build native host binary with version
+    # Build CoApp binary with version
     APP_VERSION="$VERSION" npx pkg index.js --target "$pkg_target" --output "$build_dir/$binary_name"
     
     # Make binary executable (important for double-click functionality)
@@ -163,10 +163,11 @@ EOF
     log_info "macOS .app bundle contains self-installing binary - just double-click mvdcoapp"
     
     # Create DMG
-    local dmg_name="MaxVideoDownloader-${VERSION}-${platform}.dmg"
+    local dmg_name="mvdcoapp-${platform}.dmg"
     local temp_dmg="build/temp.dmg"
-    local final_dmg="build/$dmg_name"
+    local final_dmg="dist/$dmg_name"
     
+    mkdir -p dist
     rm -f "$temp_dmg" "$final_dmg"
     hdiutil create -size 200m -fs HFS+ -volname "MAX Video Downloader" "$temp_dmg"
     
@@ -224,10 +225,12 @@ create_windows_package() {
     log_info "Compiling NSIS installer..."
     cd "$nsis_dir"
     if makensis installer.nsh; then
-        # Move the created installer to the main build directory with versioned name
-        local installer_name="mvdcoapp-${VERSION}-${platform}-installer.exe"
+        # Move the created installer to the dist directory
+        local installer_name="mvdcoapp-${platform}.exe"
+        mkdir -p dist
         mv "mvdcoapp-installer.exe" "../$installer_name"
-        log_info "✓ Created: build/$installer_name"
+        mv "../$installer_name" "../../dist/$installer_name"
+        log_info "✓ Created: dist/$installer_name"
     else
         log_error "NSIS compilation failed"
         exit 1
@@ -241,13 +244,14 @@ create_windows_package() {
 create_linux_package() {
     local platform=$1
     local build_dir="build/$platform"
-    local appdir="build/MaxVideoDownloader-$platform.AppDir"
+    local appdir="dist/MaxVideoDownloader-$platform.AppDir"
     
     [[ ! -d "$build_dir" ]] && { log_error "Build $platform first"; exit 1; }
     [[ ! "$platform" =~ ^linux- ]] && { log_error "Linux packaging only"; exit 1; }
     
     log_info "Creating Linux package for $platform..."
     
+    mkdir -p dist
     rm -rf "$appdir"
     mkdir -p "$appdir/usr/bin"
     
@@ -277,21 +281,134 @@ EOF
 }
 
 # ============================================================================
+# PUBLISH FUNCTIONS
+# ============================================================================
+
+publish_release() {
+    local version=$(node -p "require('./package.json').version")
+    local cli_notes=""
+    local use_auto_notes=true
+    
+    # Parse publish options
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --notes)
+                cli_notes="$2"
+                use_auto_notes=false
+                shift 2
+                ;;
+            --auto-notes)
+                use_auto_notes=true
+                shift
+                ;;
+            *)
+                log_error "Unknown publish option: $1"
+                log_error "Usage: ./build-coapp.sh publish [--notes TEXT | --auto-notes]"
+                exit 1
+                ;;
+        esac
+    done
+    
+    log_info "Publishing CoApp artifacts for version $version..."
+    
+    # Check if gh CLI is available
+    if ! command -v gh &> /dev/null; then
+        log_error "GitHub CLI (gh) not found. Install from https://cli.github.com/"
+        exit 1
+    fi
+    
+    # Check if git tag exists, create if not
+    if ! git tag -l | grep -q "^v$version$"; then
+        log_info "Creating git tag v$version..."
+        git tag "v$version"
+        git push origin "v$version"
+        log_info "✓ Created and pushed tag v$version"
+    else
+        log_info "Git tag v$version already exists"
+    fi
+    
+    # Prepare release notes
+    local release_notes=""
+    if [[ -n "$cli_notes" ]]; then
+        release_notes="$cli_notes"
+        log_info "Using release notes from command line"
+    else
+        log_info "Using auto-generated release notes"
+    fi
+    
+    # Check if GitHub release exists, create if not
+    if ! gh release view "v$version" &>/dev/null; then
+        log_info "Creating GitHub release v$version..."
+        
+        if [[ "$use_auto_notes" == true ]]; then
+            gh release create "v$version" \
+                --title "CoApp v$version" \
+                --notes "Automated release of CoApp binaries v$version" \
+                --generate-notes
+        else
+            gh release create "v$version" \
+                --title "CoApp v$version" \
+                --notes "$release_notes"
+        fi
+        
+        log_info "✓ Created GitHub release v$version"
+    else
+        log_info "GitHub release v$version already exists"
+    fi
+    
+    # Check if dist directory exists and has files
+    if [[ ! -d "dist" ]]; then
+        log_error "dist/ directory not found. Run builds first."
+        exit 1
+    fi
+    
+    # Get all files in dist directory
+    local artifacts=()
+    while IFS= read -r -d '' file; do
+        artifacts+=("$file")
+    done < <(find dist -type f -print0)
+    
+    if [[ ${#artifacts[@]} -eq 0 ]]; then
+        log_error "No artifacts found in dist/ directory"
+        exit 1
+    fi
+    
+    log_info "Found ${#artifacts[@]} CoApp artifacts to upload:"
+    printf '  %s\n' "${artifacts[@]}"
+    
+    # Upload all artifacts to the release
+    log_info "Uploading to release v$version..."
+    
+    if gh release upload "v$version" "${artifacts[@]}" --clobber; then
+        log_info "✅ Successfully published ${#artifacts[@]} CoApp artifacts for v$version"
+        log_info "📦 Release available at: https://github.com/$(gh repo view --json owner,name -q '.owner.login + "/" + .name')/releases/tag/v$version"
+    else
+        log_error "Failed to upload artifacts"
+        exit 1
+    fi
+}
+
+# ============================================================================
 # MAIN COMMANDS
 # ============================================================================
 
 show_help() {
     cat << EOF
-MAX Video Downloader Build System
+MAX Video Downloader CoApp Build System
 
 Usage: ./build-coapp.sh <command> [platform]
 
 Commands:
-  build <platform>     Build binary for platform
-  package <platform>   Create distributable package
-  dist <platform>      Build + package in one step
-  version              Show version
+  build <platform>     Build CoApp binary for platform
+  package <platform>   Create CoApp distributable package
+  dist <platform>      Build + package CoApp in one step
+  publish [options]    Upload all dist/ CoApp artifacts to GitHub release
+  version              Show CoApp version
   help                 Show this help
+
+Publish Options:
+  --auto-notes         Use auto-generated release notes (default)
+  --notes TEXT         Use release notes from command line
 
 Platforms:
   mac-arm64, mac-x64, win-x64, win-arm64, linux-x64, linux-arm64
@@ -299,6 +416,8 @@ Platforms:
 Examples:
   ./build-coapp.sh dist mac-arm64     # Create complete macOS installer
   ./build-coapp.sh build mac-arm64    # Just build binary
+  ./build-coapp.sh publish            # Upload all dist files with auto notes
+  ./build-coapp.sh publish --notes "Bug fixes and improvements"
 
 Note: Installation is built into the binary - just run mvdcoapp or double-click
 EOF
@@ -330,6 +449,10 @@ case "${1:-help}" in
             linux-*) create_linux_package "$platform" ;;
             *) log_error "Unknown platform: $platform"; exit 1 ;;
         esac
+        ;;
+    publish)
+        shift
+        publish_release "$@"
         ;;
     help|--help|-h)
         show_help
