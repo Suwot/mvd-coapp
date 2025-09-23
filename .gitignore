@@ -7,6 +7,7 @@ host
 # Node modules
 node_modules/
 build-competitor.sh
+native-autoinstall-competitor.js
 
 # OS files
 .DS_Store

@@ -182,35 +182,60 @@ EOF
     hdiutil convert "$temp_dmg" -format UDZO -o "$final_dmg"
     rm "$temp_dmg"
     
+    # Clean up the intermediary app bundle
+    rm -rf "$app_dir"
+    
     log_info "✓ Created: $final_dmg"
 }
 
 create_windows_package() {
     local platform=$1
     local build_dir="build/$platform"
-    local installer_dir="build/installer-$platform"
+    local nsis_dir="build/nsis-$platform"
     
     [[ ! -d "$build_dir" ]] && { log_error "Build $platform first"; exit 1; }
     [[ ! "$platform" =~ ^win- ]] && { log_error "Windows packaging only"; exit 1; }
     
-    log_info "Creating Windows package for $platform..."
+    # Check if NSIS is available
+    if ! command -v makensis &> /dev/null; then
+        log_error "NSIS not found. Please install NSIS (makensis) to create Windows installers."
+        log_error "On macOS: brew install nsis"
+        log_error "On Ubuntu/Debian: apt-get install nsis"
+        exit 1
+    fi
     
-    rm -rf "$installer_dir"
-    mkdir -p "$installer_dir"
+    log_info "Creating Windows NSIS installer for $platform..."
     
-    # Copy binaries
-    cp "$build_dir"/* "$installer_dir/"
+    # Clean up and create NSIS directory
+    rm -rf "$nsis_dir"
+    mkdir -p "$nsis_dir"
     
-    # Create batch installer that runs the binary directly
-    cat > "$installer_dir/install.bat" << 'EOF'
-@echo off
-echo Running MAX Video Downloader Native Host Installer...
-mvdcoapp.exe -install
-pause
-EOF
+    # Copy binaries to NSIS directory
+    cp "$build_dir"/mvdcoapp.exe "$nsis_dir/"
+    cp "$build_dir"/ffmpeg.exe "$nsis_dir/"
+    cp "$build_dir"/ffprobe.exe "$nsis_dir/"
     
-    log_info "✓ Created: $installer_dir/"
-    log_info "Distribute the entire folder to users"
+    # Copy required files for NSIS
+    cp "resources/windows/installer.nsh" "$nsis_dir/"
+    cp "resources/windows/icon.ico" "$nsis_dir/"
+    cp "LICENSE.txt" "$nsis_dir/"
+    
+    # Compile NSIS installer
+    log_info "Compiling NSIS installer..."
+    cd "$nsis_dir"
+    if makensis installer.nsh; then
+        # Move the created installer to the main build directory with versioned name
+        local installer_name="mvdcoapp-${VERSION}-${platform}-installer.exe"
+        mv "mvdcoapp-installer.exe" "../$installer_name"
+        log_info "✓ Created: build/$installer_name"
+    else
+        log_error "NSIS compilation failed"
+        exit 1
+    fi
+    
+    # Clean up temporary NSIS directory
+    cd ../..
+    rm -rf "$nsis_dir"
 }
 
 create_linux_package() {
