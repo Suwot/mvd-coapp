@@ -6,7 +6,7 @@
 set -e
 
 VERSION=$(node -p "require('./package.json').version")
-APP_NAME="pro.maxvideodownloader.coapp"
+APP_NAME="mvdcoapp"
 
 # ============================================================================
 # UTILITIES
@@ -169,26 +169,31 @@ EOF
     
     log_info "macOS .app bundle contains self-installing binary - just double-click mvdcoapp"
     
-    # Create DMG
+    # Check for create-dmg dependency
+    if ! command -v create-dmg &> /dev/null; then
+        log_error "create-dmg not found. Install with: brew install create-dmg"
+        exit 1
+    fi
+    
+    # Create DMG using create-dmg
     local dmg_name="mvdcoapp-${platform}.dmg"
-    local temp_dmg="build/temp.dmg"
     local final_dmg="dist/$dmg_name"
     
     mkdir -p dist
-    rm -f "$temp_dmg" "$final_dmg"
-    hdiutil create -size 200m -fs HFS+ -volname "MAX Video Downloader" "$temp_dmg"
+    rm -f "$final_dmg"
     
-    local mount_point=$(hdiutil attach "$temp_dmg" | grep "/Volumes" | sed 's/.*\(\/Volumes\/.*\)/\1/')
-    [[ -z "$mount_point" ]] && { log_error "Failed to mount DMG"; exit 1; }
-    
-    sleep 2
-    cp -R "$app_dir" "$mount_point/"
-    ln -s /Applications "$mount_point/Applications" 2>/dev/null || true
-    
-    sync
-    hdiutil detach "$mount_point"
-    hdiutil convert "$temp_dmg" -format UDZO -o "$final_dmg"
-    rm "$temp_dmg"
+    log_info "Creating styled DMG with background..."
+    create-dmg \
+        --volname "Max Video Downloader CoApp" \
+        --background "resources/mac/dmg-background.png" \
+        --window-pos 200 120 \
+        --window-size 720 326 \
+        --icon-size 100 \
+        --icon "${APP_NAME}.app" 140 130 \
+        --app-drop-link 550 130 \
+        --hide-extension "${APP_NAME}.app" \
+        "$final_dmg" \
+        "$app_dir"
     
     # Clean up the intermediary app bundle
     rm -rf "$app_dir"
