@@ -174,7 +174,7 @@ class FileSystemCommand extends BaseCommand {
         if (process.platform === 'darwin') {
             return { cmd: 'open', args: [filePath] };
         } else if (process.platform === 'win32') {
-            return { cmd: 'start', args: ['""', `"${filePath}"`] };
+            return { cmd: 'cmd.exe', args: ['/c', 'start', '""', `"${filePath}"`] };
         } else {
             throw new Error('Unsupported platform');
         }
