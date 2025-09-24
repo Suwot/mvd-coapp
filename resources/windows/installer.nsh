@@ -49,6 +49,8 @@ InstallDir "${INSTALL_DIR}"
 ######################################################################
 
 !include "MUI2.nsh"
+!include "StrFunc.nsh"
+${Using:StrFunc} StrRep
 
 !define MUI_ABORTWARNING
 !define MUI_UNABORTWARNING
@@ -91,12 +93,16 @@ Section -CreateManifests
 	DetailPrint "Creating browser manifests..."
 	SetDetailsPrint listonly
 
+	# Escape backslashes in path for JSON
+	StrCpy $1 "$INSTDIR\mvdcoapp.exe"
+	${StrRep} $1 $1 "\" "\\"
+
 	# Create Chrome manifest
 	FileOpen $0 "$INSTDIR\pro.maxvideodownloader.coapp.json" w
 	FileWrite $0 '{$\r$\n'
 	FileWrite $0 '  "name": "pro.maxvideodownloader.coapp",$\r$\n'
 	FileWrite $0 '  "description": "MAX Video Downloader Native Host",$\r$\n'
-	FileWrite $0 '  "path": "$INSTDIR\mvdcoapp.exe",$\r$\n'
+	FileWrite $0 '  "path": "$1",$\r$\n'
 	FileWrite $0 '  "type": "stdio",$\r$\n'
 	FileWrite $0 '  "allowed_origins": [$\r$\n'
 	FileWrite $0 '    "chrome-extension://bkblnddclhmmgjlmbofhakhhbklkcofd/",$\r$\n'
@@ -110,7 +116,7 @@ Section -CreateManifests
 	FileWrite $0 '{$\r$\n'
 	FileWrite $0 '  "name": "pro.maxvideodownloader.coapp",$\r$\n'
 	FileWrite $0 '  "description": "MAX Video Downloader Native Host",$\r$\n'
-	FileWrite $0 '  "path": "$INSTDIR\mvdcoapp.exe",$\r$\n'
+	FileWrite $0 '  "path": "$1",$\r$\n'
 	FileWrite $0 '  "type": "stdio",$\r$\n'
 	FileWrite $0 '  "allowed_extensions": [$\r$\n'
 	FileWrite $0 '    "max-video-downloader@rostislav.dev"$\r$\n'

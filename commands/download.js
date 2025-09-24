@@ -1043,7 +1043,7 @@ class DownloadCommand extends BaseCommand {
                 const downloadStartTime = Date.now();
                 const ffmpeg = spawn(ffmpegService.getFFmpegPath(), ffmpegArgs, { 
                     env: getFullEnv(),
-                    windowsVerbatimArguments: process.platform === 'win32',
+                    windowsVerbatimArguments: process.platform !== 'win32',
                     stdio: ['pipe', 'pipe', 'pipe'] // Enable stdin for graceful termination
                 });
                 processManager.register(ffmpeg);

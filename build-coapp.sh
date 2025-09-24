@@ -72,6 +72,9 @@ build_binary() {
     [[ -z "$pkg_target" ]] && { log_error "Unsupported platform: $platform"; exit 1; }
     
     log_info "Building binary for $platform..."
+    
+    # Clean build directory to ensure fresh build
+    rm -rf "$build_dir"
     mkdir -p "$build_dir"
     
     # Build CoApp binary with version
@@ -100,11 +103,15 @@ create_macos_package() {
     local platform=$1
     local build_dir="build/$platform"
     local app_dir="build/${APP_NAME}.app"
+    local dmg_name="mvdcoapp-${platform}.dmg"
     
     [[ ! -d "$build_dir" ]] && { log_error "Build $platform first"; exit 1; }
     [[ ! "$platform" =~ ^mac- ]] && { log_error "macOS packaging only"; exit 1; }
     
     log_info "Creating macOS package for $platform..."
+    
+    # Clean any existing dist files for this platform
+    rm -f "dist/$dmg_name"
     
     # Create app bundle structure
     local contents_dir="$app_dir/Contents"
@@ -227,10 +234,12 @@ create_windows_package() {
     if makensis installer.nsh; then
         # Move the created installer to the dist directory
         local installer_name="mvdcoapp-${platform}.exe"
-        mkdir -p dist
+        mkdir -p ../../dist
+        # Clean any existing installer
+        rm -f "../../dist/$installer_name"
         mv "mvdcoapp-installer.exe" "../$installer_name"
         mv "../$installer_name" "../../dist/$installer_name"
-        log_info "✓ Created: dist/$installer_name"
+        log_info "✓ Created: ../../dist/$installer_name"
     else
         log_error "NSIS compilation failed"
         exit 1
@@ -251,7 +260,7 @@ create_linux_package() {
     
     log_info "Creating Linux package for $platform..."
     
-    mkdir -p dist
+    # Clean any existing AppDir
     rm -rf "$appdir"
     mkdir -p "$appdir/usr/bin"
     
