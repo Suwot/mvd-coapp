@@ -295,28 +295,6 @@ EOF
 
 publish_release() {
     local version=$(node -p "require('./package.json').version")
-    local cli_notes=""
-    local use_auto_notes=true
-    
-    # Parse publish options
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --notes)
-                cli_notes="$2"
-                use_auto_notes=false
-                shift 2
-                ;;
-            --auto-notes)
-                use_auto_notes=true
-                shift
-                ;;
-            *)
-                log_error "Unknown publish option: $1"
-                log_error "Usage: ./build-coapp.sh publish [--notes TEXT | --auto-notes]"
-                exit 1
-                ;;
-        esac
-    done
     
     log_info "Publishing CoApp artifacts for version $version..."
     
@@ -336,29 +314,14 @@ publish_release() {
         log_info "Git tag v$version already exists"
     fi
     
-    # Prepare release notes
-    local release_notes=""
-    if [[ -n "$cli_notes" ]]; then
-        release_notes="$cli_notes"
-        log_info "Using release notes from command line"
-    else
-        log_info "Using auto-generated release notes"
-    fi
-    
     # Check if GitHub release exists, create if not
     if ! gh release view "v$version" &>/dev/null; then
         log_info "Creating GitHub release v$version..."
         
-        if [[ "$use_auto_notes" == true ]]; then
-            gh release create "v$version" \
-                --title "CoApp v$version" \
-                --notes "Automated release of CoApp binaries v$version" \
-                --generate-notes
-        else
-            gh release create "v$version" \
-                --title "CoApp v$version" \
-                --notes "$release_notes"
-        fi
+        gh release create "v$version" \
+            --title "CoApp v$version" \
+            --notes "Automated release of CoApp binaries v$version" \
+            --generate-notes
         
         log_info "✓ Created GitHub release v$version"
     else
@@ -411,13 +374,9 @@ Commands:
   build <platform>     Build CoApp binary for platform
   package <platform>   Create CoApp distributable package
   dist <platform>      Build + package CoApp in one step
-  publish [options]    Upload all dist/ CoApp artifacts to GitHub release
+  publish              Upload all dist/ CoApp artifacts to GitHub release
   version              Show CoApp version
   help                 Show this help
-
-Publish Options:
-  --auto-notes         Use auto-generated release notes (default)
-  --notes TEXT         Use release notes from command line
 
 Platforms:
   mac-arm64, mac-x64, win-x64, win-arm64, linux-x64, linux-arm64
@@ -425,8 +384,7 @@ Platforms:
 Examples:
   ./build-coapp.sh dist mac-arm64     # Create complete macOS installer
   ./build-coapp.sh build mac-arm64    # Just build binary
-  ./build-coapp.sh publish            # Upload all dist files with auto notes
-  ./build-coapp.sh publish --notes "Bug fixes and improvements"
+  ./build-coapp.sh publish            # Upload all dist files with auto-generated notes
 
 Note: Installation is built into the binary - just run mvdcoapp or double-click
 EOF
@@ -460,8 +418,7 @@ case "${1:-help}" in
         esac
         ;;
     publish)
-        shift
-        publish_release "$@"
+        publish_release
         ;;
     help|--help|-h)
         show_help
