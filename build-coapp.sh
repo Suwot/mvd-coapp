@@ -185,12 +185,14 @@ EOF
     log_info "Creating styled DMG with background..."
     create-dmg \
         --volname "Max Video Downloader CoApp" \
+        --volicon "resources/mac/AppIcon.icns" \
         --background "resources/mac/dmg-background.png" \
         --window-pos 200 120 \
-        --window-size 720 326 \
+        --window-size 750 560 \
         --icon-size 100 \
-        --icon "${APP_NAME}.app" 140 130 \
-        --app-drop-link 550 130 \
+        --icon "${APP_NAME}.app" 185 290 \
+        --app-drop-link 565 290 \
+        --add-file "README.txt" "resources/mac/README.txt" 375 450 \
         --hide-extension "${APP_NAME}.app" \
         "$final_dmg" \
         "$app_dir"
