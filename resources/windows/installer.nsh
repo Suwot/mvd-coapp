@@ -106,7 +106,8 @@ Section -CreateManifests
 	FileWrite $0 '  "type": "stdio",$\r$\n'
 	FileWrite $0 '  "allowed_origins": [$\r$\n'
 	FileWrite $0 '    "chrome-extension://bkblnddclhmmgjlmbofhakhhbklkcofd/",$\r$\n'
-	FileWrite $0 '    "chrome-extension://kjinbaahkmjgkkedfdgpkkelehofieke/"$\r$\n'
+	FileWrite $0 '    "chrome-extension://kjinbaahkmjgkkedfdgpkkelehofieke/",$\r$\n'
+	FileWrite $0 '    "chrome-extension://hkakpofpmdphjlkojabkfjapnhjfebdl/"$\r$\n'
 	FileWrite $0 '  ]$\r$\n'
 	FileWrite $0 '}$\r$\n'
 	FileClose $0
