@@ -345,7 +345,7 @@ publish_release() {
     local artifacts=()
     while IFS= read -r -d '' file; do
         artifacts+=("$file")
-    done < <(find dist -type f -print0)
+    done < <(find dist -type f -not -name ".DS_Store" -print0)
     
     if [[ ${#artifacts[@]} -eq 0 ]]; then
         log_error "No artifacts found in dist/ directory"
