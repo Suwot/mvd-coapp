@@ -16,8 +16,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug } = require('../utils/logger');
-const { getFullEnv } = require('../utils/resources');
+const { logDebug, getFullEnv, getFFmpegPaths } = require('../utils/logger');
 const processManager = require('../lib/process-manager');
 
 // Command for downloading videos
@@ -426,7 +425,7 @@ class DownloadCommand extends BaseCommand {
         
         try {
             // Get required services
-            const ffmpegService = this.getService('ffmpeg');
+            const { ffmpegPath } = getFFmpegPaths();
             
             // Use container from extension (trusted completely)
             logDebug('📦 Using container from extension:', container);
@@ -461,11 +460,11 @@ class DownloadCommand extends BaseCommand {
                 trackLabels: params.trackLabels || {}
             });
             
-            logDebug('FFmpeg command:', ffmpegService.getFFmpegPath(), ffmpegArgs.join(' '));
+            logDebug('FFmpeg command:', ffmpegPath, ffmpegArgs.join(' '));
             
             // Execute FFmpeg with progress tracking
             return this.executeFFmpegWithProgress({
-                ffmpegService,
+                ffmpegPath,
                 ffmpegArgs,
                 uniqueOutput,
                 downloadUrl,
@@ -900,7 +899,7 @@ class DownloadCommand extends BaseCommand {
      * @returns {Promise<number>} - Duration in seconds
      * @private
      */
-    async probeMediaDuration(ffmpegService, url, headers = {}) {
+    async probeMediaDuration(url, headers = {}) {
         logDebug('Probing media duration for:', url);
         
         try {
@@ -918,10 +917,7 @@ class DownloadCommand extends BaseCommand {
             }
             
             // Get path to ffprobe
-            const ffprobePath = ffmpegService.getFFprobePath();
-            if (!ffprobePath) {
-                throw new Error('FFprobe path not available');
-            }
+            const { ffprobePath } = getFFmpegPaths();
             
             logDebug('Using FFprobe path:', ffprobePath);
             
@@ -995,7 +991,7 @@ class DownloadCommand extends BaseCommand {
     
     // Executes FFmpeg with progress tracking
     executeFFmpegWithProgress({
-        ffmpegService,
+        ffmpegPath,
         ffmpegArgs,
         uniqueOutput,
         downloadUrl,
@@ -1022,7 +1018,7 @@ class DownloadCommand extends BaseCommand {
                     finalDuration = null; // Ensure duration is null for livestreams
                 } else if (!isLive && (!duration || typeof duration !== 'number' || duration <= 0)) {
 					logDebug('No valid duration provided, probing media...');
-					finalDuration = await this.probeMediaDuration(ffmpegService, downloadUrl, headers);
+					finalDuration = await this.probeMediaDuration(downloadUrl, headers);
 					finalDuration
 						? logDebug('Got duration from probe:', finalDuration)
 						: logDebug('Could not probe duration, will rely on FFmpeg output parsing');
@@ -1041,7 +1037,7 @@ class DownloadCommand extends BaseCommand {
                 
                 // Start FFmpeg process
                 const downloadStartTime = Date.now();
-                const ffmpeg = spawn(ffmpegService.getFFmpegPath(), ffmpegArgs, { 
+                const ffmpeg = spawn(ffmpegPath, ffmpegArgs, { 
                     env: getFullEnv(),
                     windowsVerbatimArguments: process.platform !== 'win32',
                     stdio: ['pipe', 'pipe', 'pipe'] // Enable stdin for graceful termination
@@ -1225,7 +1221,7 @@ class DownloadCommand extends BaseCommand {
                     logDebug(`FFmpeg spawn failed with ${code}; retrying once…`);
                     // Re-run the same pipeline once. We don't emit any terminal message here; the retried run will.
                     this.executeFFmpegWithProgress({
-                        ffmpegService,
+                        ffmpegPath,
                         ffmpegArgs,
                         uniqueOutput,
                         downloadUrl,

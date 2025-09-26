@@ -77,7 +77,45 @@ function logDebug(...args) {
     }
 }
 
+/**
+ * Get FFmpeg and FFprobe paths (co-located with executable)
+ */
+function getFFmpegPaths() {
+    const dir = typeof process.pkg !== 'undefined' 
+        ? path.dirname(process.execPath)
+        : path.dirname(__dirname);
+    const ext = process.platform === 'win32' ? '.exe' : '';
+    return {
+        ffmpegPath: path.join(dir, `ffmpeg${ext}`),
+        ffprobePath: path.join(dir, `ffprobe${ext}`)
+    };
+}
+
+/**
+ * Get enhanced environment with common system paths
+ */
+function getFullEnv() {
+    const extraPaths = [
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        '/usr/bin',
+        '/bin',
+        '/usr/sbin',
+        '/sbin'
+    ];
+    
+    const pathDelimiter = process.platform === 'win32' ? ';' : ':';
+    const pathValue = extraPaths.join(pathDelimiter);
+    
+    return {
+        ...process.env,
+        PATH: `${pathValue}${pathDelimiter}${process.env.PATH || ''}`
+    };
+}
+
 module.exports = {
     logDebug,
-    LOG_FILE
+    LOG_FILE,
+    getFFmpegPaths,
+    getFullEnv
 };

@@ -8,7 +8,7 @@
  */
 
 const BaseCommand = require('./base-command');
-const { logDebug } = require('../utils/logger');
+const { logDebug, getFFmpegPaths } = require('../utils/logger');
 
 /**
  * Command for validating connection and retrieving host information
@@ -37,8 +37,8 @@ class ValidateConnectionCommand extends BaseCommand {
         // Get FFmpeg version info
         let ffmpegVersion = null;
         try {
-            const ffmpegService = this.getService('ffmpeg');
-            if (ffmpegService) {
+            const { ffmpegPath } = getFFmpegPaths();
+            if (ffmpegPath) {
                 // Try to get FFmpeg version - this is a simple approach
                 ffmpegVersion = '7.1.1'; // Default bundled version
                 // TODO: Could run ffmpeg -version to get actual version, but keeping it simple for now

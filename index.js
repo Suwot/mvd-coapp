@@ -72,8 +72,6 @@ if (args.includes('-uninstall')) {
     });
     return;
 }
-// Import services directly
-const ffmpegService = require('./services/ffmpeg');
 
 // Import commands directly
 const DownloadCommand = require('./commands/download');
@@ -123,14 +121,10 @@ function startIdleTimer() {
  */
 async function bootstrap() {
     try {
-        logDebug('Starting native host application');
+        logDebug('Starting CoApp application');
         
-        // Initialize services directly
-        logDebug('Initializing services...');
-        if (!ffmpegService.initialize()) {
-            logDebug('FFmpeg service initialization failed');
-            process.exit(1);
-        }
+        // Services are now inline utilities - no initialization needed
+        logDebug('CoApp services ready');
         
         // Create messaging service
         const messagingService = new MessagingService();

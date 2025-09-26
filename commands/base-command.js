@@ -7,16 +7,12 @@
  * - Enforces consistent command execution pattern
  */
 
-const { logDebug } = require('../utils/logger');
-const ffmpegService = require('../services/ffmpeg');
-
 /**
  * Base class for all commands
  */
 class BaseCommand {
     constructor(messagingService) {
         this.messaging = messagingService;
-        this.ffmpegService = ffmpegService;
         this.currentMessageId = null;
     }
     
@@ -25,16 +21,6 @@ class BaseCommand {
      */
     setMessageId(messageId) {
         this.currentMessageId = messageId;
-    }
-
-    /**
-     * Get a service directly (for backwards compatibility)
-     */
-    getService(serviceName) {
-        switch (serviceName) {
-            case 'ffmpeg': return this.ffmpegService;
-            default: throw new Error(`Unknown service: ${serviceName}`);
-        }
     }
 
     /**

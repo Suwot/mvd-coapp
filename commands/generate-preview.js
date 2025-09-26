@@ -14,8 +14,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug } = require('../utils/logger');
-const { getFullEnv } = require('../utils/resources');
+const { logDebug, getFullEnv, getFFmpegPaths } = require('../utils/logger');
 const processManager = require('../lib/process-manager');
 
 /**
@@ -45,7 +44,7 @@ class GeneratePreviewCommand extends BaseCommand {
         
         try {
             // Get required services
-            const ffmpegService = this.getService('ffmpeg');
+            const { ffmpegPath } = getFFmpegPaths();
             
             return new Promise((resolve, reject) => {
                 const previewPath = path.join(process.env.HOME || os.homedir(), '.cache', 'video-preview-' + Date.now() + '.jpg');
@@ -118,7 +117,6 @@ class GeneratePreviewCommand extends BaseCommand {
                 ]);
                 
                 // Log the complete FFmpeg command for debugging
-                const ffmpegPath = ffmpegService.getFFmpegPath();
                 const commandLine = `${ffmpegPath} ${ffmpegArgs.join(' ')}`;
                 logDebug('🎬 FFmpeg preview command:', commandLine);
                 

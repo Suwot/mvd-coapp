@@ -10,8 +10,7 @@
 
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug } = require('../utils/logger');
-const { getFullEnv } = require('../utils/resources');
+const { logDebug, getFullEnv, getFFmpegPaths } = require('../utils/logger');
 const processManager = require('../lib/process-manager');
 
 /**
@@ -49,8 +48,8 @@ class GetQualitiesCommand extends BaseCommand {
         }
         
         try {
-            // Get required services
-            const ffmpegService = this.getService('ffmpeg');
+            // Get FFmpeg directly
+            const { ffprobePath } = getFFmpegPaths();
             
             return new Promise((resolve, reject) => {
                 // Build FFprobe args
@@ -85,7 +84,6 @@ class GetQualitiesCommand extends BaseCommand {
                 ffprobeArgs.push(analyzeUrl);
                 
                 // Log the complete FFprobe command for debugging
-                const ffprobePath = ffmpegService.getFFprobePath();
                 const commandLine = `${ffprobePath} ${ffprobeArgs.join(' ')}`;
                 logDebug('🔍 FFprobe analysis command:', commandLine);
                 
