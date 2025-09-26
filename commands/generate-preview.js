@@ -1,12 +1,5 @@
 /**
  * GeneratePreviewCommand – Video thumbnail generator
- * - Creates thumbnail previews from video URLs
- * - Uses FFmpeg to extract frames from remote videos
- * - Converts thumbnails to base64 data URLs
- * - Handles various video source formats
- * - Optimizes thumbnails for UI display
- * - Implements temporary file management
- * - Reports preview generation progress and errors
  */
 
 const fs = require('fs');
@@ -17,172 +10,117 @@ const BaseCommand = require('./base-command');
 const { logDebug, getFullEnv, getFFmpegPaths } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
-/**
- * Command for generating video previews/thumbnails
- */
 class GeneratePreviewCommand extends BaseCommand {
-    /**
-     * Execute the preview generation command
-     * @param {Object} params Command parameters
-     * @param {string} params.url Video URL to generate preview for
-     */
     async execute(params) {
         const { url, headers = {}, duration, type } = params;
         logDebug('Generating preview for video:', url);
         
-        // Skip for blob URLs
         if (url.startsWith('blob:')) {
             const error = 'Cannot generate preview for blob URLs';
-            this.sendMessage({ error: error });
-            return { error: error };
+            this.sendMessage({ error });
+            return { error };
         }
         
-        // Log received headers
         if (headers && Object.keys(headers).length > 0) {
             logDebug('🔑 Using headers for preview request:', Object.keys(headers));
         }
         
         try {
-            // Get required services
             const { ffmpegPath } = getFFmpegPaths();
+            const previewPath = path.join(os.homedir(), '.cache', `video-preview-${Date.now()}.jpg`);
             
-            return new Promise((resolve, reject) => {
-                const previewPath = path.join(process.env.HOME || os.homedir(), '.cache', 'video-preview-' + Date.now() + '.jpg');
-                let ffmpeg = null;
-                let killedByTimeout = false;
-                
-                // Set a timeout to prevent hanging
-                const timeout = setTimeout(() => {
-                    if (ffmpeg && !ffmpeg.killed) {
-                        logDebug('Killing FFmpeg process due to timeout');
-                        killedByTimeout = true;
-                        ffmpeg.kill('SIGKILL');
-                    }
-                    // Send a clean timeout response instead of an error
-                    logDebug('Preview generation timeout after 30 seconds');
-                    this.sendMessage({ timeout: true, success: false });
-                    resolve({ timeout: true, success: false });
-                }, 40000); // 40 second timeout for preview generation
-                
-                // Calculate ideal timestamp based on duration if available
-                let timestamp = '00:00:01'; // Default timestamp
-                if (duration) {
-                    // Choose 10% into the video, but not less than 1 sec and not more than 5 secs
-                    const durationSecs = parseFloat(duration);
-                    if (!isNaN(durationSecs) && durationSecs > 0) {
-                        const previewTime = Math.min(Math.max(durationSecs * 0.1, 1), 5);
-                        timestamp = new Date(previewTime * 1000).toISOString().substring(11, 19);
-                        logDebug(`Using smart timestamp for preview: ${timestamp} (${previewTime}s, 10% of ${durationSecs}s duration)`);
-                    }
+            // Calculate timestamp (10% into video, 1-5s range)
+            let timestamp = '00:00:01';
+            if (duration) {
+                const durationSecs = parseFloat(duration);
+                if (!isNaN(durationSecs) && durationSecs > 0) {
+                    const previewTime = Math.min(Math.max(durationSecs * 0.1, 1), 5);
+                    timestamp = new Date(previewTime * 1000).toISOString().substring(11, 19);
+                    logDebug(`Using smart timestamp: ${timestamp}`);
                 }
-                
-                // Build FFmpeg args
-                let ffmpegArgs = [];
-                
-                // Add headers if provided
-                if (headers && Object.keys(headers).length > 0) {
-                    // Format headers for FFmpeg as "Key: Value\r\n" pairs
-                    const headerLines = Object.entries(headers)
-                        .map(([key, value]) => `${key}: ${value}`)
-                        .join('\r\n');
-                    
-                    if (headerLines) {
-                        ffmpegArgs.push('-headers', headerLines + '\r\n');
-                    }
-                }
-                
-                // Apply format-specific options based on video type
-                if (type === 'hls') {
-                    ffmpegArgs.push(
-                        '-allowed_extensions', 'ALL',
-                        '-protocol_whitelist', 'file,http,https,tcp,tls,crypto',
-                        '-probesize', '3M'
-                    );
-                } else if (type === 'dash') {
-                    ffmpegArgs.push(
-                        '-protocol_whitelist', 'file,http,https,tcp,tls,crypto',
-                        '-probesize', '3M',
-                        '-dash_allow_hier_sidx', '1'
-                    );
-                }
-                // Direct media types use default FFmpeg protocol handling (no special options needed)
-                
-                // Add input URL
-                ffmpegArgs.push('-i', url);
-                
-                // Add seek timestamp after input
-                ffmpegArgs.push('-ss', timestamp);
-                
-                // Add the rest of the arguments
-                ffmpegArgs = ffmpegArgs.concat([
-                    '-vframes', '1',     // Extract one frame
-                    '-vf', 'scale=120:-2',  // Scale to 120px width (-2 for even height)
-                    '-q:v', '2',         // High quality
-                    previewPath
-                ]);
-                
-                // Log the complete FFmpeg command for debugging
-                const commandLine = `${ffmpegPath} ${ffmpegArgs.join(' ')}`;
-                logDebug('🎬 FFmpeg preview command:', commandLine);
-                
-                ffmpeg = spawn(ffmpegPath, ffmpegArgs, { env: getFullEnv() });
-                processManager.register(ffmpeg);
-        
-                let errorOutput = '';
-        
-                ffmpeg.stderr.on('data', (data) => {
-                    errorOutput += data.toString();
-                });
-        
-                ffmpeg.on('close', (code) => {
-                    clearTimeout(timeout);
-                    
-                    // If killed by timeout, don't try to process the file
-                    if (killedByTimeout) {
-                        logDebug('FFmpeg process was killed by timeout, skipping file processing');
-                        return; // Promise already rejected by timeout handler
-                    }
-                    
-                    if (code === 0) {
-                        try {
-                            // Convert image to data URL
-                            const imageBuffer = fs.readFileSync(previewPath);
-                            const dataUrl = 'data:image/jpeg;base64,' + imageBuffer.toString('base64');
-                            this.sendMessage({ previewUrl: dataUrl, success: true });
-                            // Clean up
-                            fs.unlink(previewPath, (err) => {
-                                if (err) logDebug('Failed to delete preview file:', err);
-                            });
-                            resolve({ success: true, previewUrl: dataUrl });
-                        } catch (err) {
-                            logDebug('Failed to read preview file:', err);
-                            this.sendMessage({ error: 'Failed to read preview file: ' + err.message });
-                            reject(err);
-                        }
-                    } else {
-                        const error = `Failed to generate preview. FFmpeg exited with code ${code}: ${errorOutput}`;
-                        logDebug('FFmpeg preview generation failed:', error);
-                        this.sendMessage({ error: error });
-                        reject(new Error(error));
-                    }
-                });
-        
-                ffmpeg.on('error', (err) => {
-                    clearTimeout(timeout);
-                    
-                    // Don't send duplicate error if already killed by timeout
-                    if (!killedByTimeout) {
-                        logDebug('FFmpeg process error:', err);
-                        this.sendMessage({ error: err.message });
-                        reject(err);
-                    }
-                });
-            });
+            }
+            
+            // Build FFmpeg arguments
+            const args = [];
+            
+            // Add headers if provided
+            if (headers && Object.keys(headers).length > 0) {
+                const headerLines = Object.entries(headers)
+                    .map(([key, value]) => `${key}: ${value}`)
+                    .join('\r\n');
+                if (headerLines) args.push('-headers', headerLines + '\r\n');
+            }
+            
+            // Add format-specific options
+            if (type === 'hls') {
+                args.push('-allowed_extensions', 'ALL', '-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '3M');
+            } else if (type === 'dash') {
+                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '3M', '-dash_allow_hier_sidx', '1');
+            }
+            
+            // Add input, timestamp, and output options
+            args.push('-i', url, '-ss', timestamp, '-vframes', '1', '-vf', 'scale=120:-2', '-q:v', '2', previewPath);
+            
+            logDebug('🎬 FFmpeg preview command:', ffmpegPath, args.join(' '));
+            
+            return Promise.race([
+                this.runFFmpeg(ffmpegPath, args, previewPath),
+                this.timeoutPromise(40000)
+            ]);
         } catch (err) {
             logDebug('Preview generation error:', err);
             this.sendMessage({ error: err.message });
             return { error: err.message };
         }
+    }
+    
+    runFFmpeg(ffmpegPath, args, previewPath) {
+        return new Promise((resolve, reject) => {
+            const ffmpeg = spawn(ffmpegPath, args, { env: getFullEnv() });
+            processManager.register(ffmpeg);
+            
+            let errorOutput = '';
+            ffmpeg.stderr.on('data', data => errorOutput += data.toString());
+            
+            ffmpeg.on('close', code => {
+                if (code === 0) {
+                    try {
+                        const imageBuffer = fs.readFileSync(previewPath);
+                        const dataUrl = 'data:image/jpeg;base64,' + imageBuffer.toString('base64');
+                        fs.unlink(previewPath, err => err && logDebug('Failed to delete preview file:', err));
+                        
+                        this.sendMessage({ previewUrl: dataUrl, success: true });
+                        resolve({ success: true, previewUrl: dataUrl });
+                    } catch (err) {
+                        const error = `Failed to read preview file: ${err.message}`;
+                        logDebug(error);
+                        this.sendMessage({ error });
+                        reject(new Error(error));
+                    }
+                } else {
+                    const error = `FFmpeg failed with code ${code}: ${errorOutput}`;
+                    logDebug('FFmpeg preview generation failed:', error);
+                    this.sendMessage({ error });
+                    reject(new Error(error));
+                }
+            });
+            
+            ffmpeg.on('error', err => {
+                logDebug('FFmpeg process error:', err);
+                this.sendMessage({ error: err.message });
+                reject(err);
+            });
+        });
+    }
+    
+    timeoutPromise(ms) {
+        return new Promise(resolve => {
+            setTimeout(() => {
+                logDebug(`Preview generation timeout after ${ms/1000} seconds`);
+                this.sendMessage({ timeout: true, success: false });
+                resolve({ timeout: true, success: false });
+            }, ms);
+        });
     }
 }
 
