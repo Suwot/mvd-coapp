@@ -77,7 +77,7 @@ class GeneratePreviewCommand extends BaseCommand {
                 }
                 
                 // Build FFmpeg args
-                let ffmpegArgs = ['-ss', timestamp];  // Skip to smart timestamp
+                let ffmpegArgs = [];
                 
                 // Add headers if provided
                 if (headers && Object.keys(headers).length > 0) {
@@ -107,11 +107,16 @@ class GeneratePreviewCommand extends BaseCommand {
                 }
                 // Direct media types use default FFmpeg protocol handling (no special options needed)
                 
+                // Add input URL
+                ffmpegArgs.push('-i', url);
+                
+                // Add seek timestamp after input
+                ffmpegArgs.push('-ss', timestamp);
+                
                 // Add the rest of the arguments
                 ffmpegArgs = ffmpegArgs.concat([
-                    '-i', url,
                     '-vframes', '1',     // Extract one frame
-                    '-vf', 'scale=120:-1',  // Scale to 120px width
+                    '-vf', 'scale=120:-2',  // Scale to 120px width (-2 for even height)
                     '-q:v', '2',         // High quality
                     previewPath
                 ]);
