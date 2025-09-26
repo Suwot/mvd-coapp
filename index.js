@@ -13,7 +13,7 @@
 
 // Import core modules
 const MessagingService = require('./lib/messaging');
-const { logDebug } = require('./utils/logger');
+const { logDebug } = require('./utils/utils');
 
 // Handle CLI commands before Chrome messaging setup
 const args = process.argv.slice(2);

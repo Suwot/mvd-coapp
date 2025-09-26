@@ -8,7 +8,7 @@
  */
 
 const BaseCommand = require('./base-command');
-const { logDebug, getFFmpegPaths } = require('../utils/logger');
+const { logDebug, getFFmpegPaths } = require('../utils/utils');
 
 /**
  * Command for validating connection and retrieving host information

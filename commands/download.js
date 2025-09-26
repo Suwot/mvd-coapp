@@ -16,7 +16,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug, getFullEnv, getFFmpegPaths } = require('../utils/logger');
+const { logDebug, getFullEnv, getFFmpegPaths } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
 // Command for downloading videos

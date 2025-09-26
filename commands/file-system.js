@@ -8,7 +8,7 @@
  */
 
 const BaseCommand = require('./base-command');
-const { logDebug } = require('../utils/logger');
+const { logDebug } = require('../utils/utils');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
