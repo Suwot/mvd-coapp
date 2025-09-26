@@ -74,7 +74,6 @@ if (args.includes('-uninstall')) {
 }
 // Import services directly
 const ffmpegService = require('./services/ffmpeg');
-const configService = require('./services/config');
 
 // Import commands directly
 const DownloadCommand = require('./commands/download');
@@ -128,10 +127,6 @@ async function bootstrap() {
         
         // Initialize services directly
         logDebug('Initializing services...');
-        if (!configService.initialize()) {
-            logDebug('Config service initialization failed');
-            process.exit(1);
-        }
         if (!ffmpegService.initialize()) {
             logDebug('FFmpeg service initialization failed');
             process.exit(1);
