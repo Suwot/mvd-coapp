@@ -2,7 +2,7 @@
 
 **Companion application for MAX Video Downloader browser extension**
 
-Cross-platform video processing engine with FFmpeg integration for downloading HLS, DASH, and direct media files.
+Cross-platform video processing engine with FFmpeg integration for downloading HLS, DASH, and direct media files. Currently available for macOS (Intel and Apple Silicon) and Windows (x64, also works on ARM), with Linux and Windows ARM64 support coming soon.
 
 ## Files
 
@@ -34,7 +34,7 @@ Install the browser extension to use this CoApp:
 <td align="center" width="200">
 <img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/chrome/chrome_48x48.png" width="48" height="48" alt="Chrome"><br>
 <strong>Chrome Web Store</strong><br>
-<a href="https://chrome.google.com/webstore/detail/dummy-extension-id">
+<a href="https://chromewebstore.google.com/detail/max-video-downloader-%E2%80%93-do/kjinbaahkmjgkkedfdgpkkelehofieke?utm_campaign=readme-btn&utm_medium=button&utm_source=github">
 <img src="https://img.shields.io/badge/Install-4285F4?style=for-the-badge&logo=google-chrome&logoColor=white" alt="Install from Chrome Web Store">
 </a>
 </td>
@@ -57,9 +57,9 @@ Download the CoApp for your platform:
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
-| **macOS** | Apple Silicon (M1-M4) | [![Download DMG](https://img.shields.io/badge/Download_DMG-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Suwot/mvd-coapp/releases/latest/download/MaxVideoDownloader-mac-arm64.dmg) |
-| **macOS** | Intel (x64) | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=apple&logoColor=999999) |
-| **Windows** | x64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=windows&logoColor=999999) |
+| **macOS** | Apple Silicon (M1-M4) | [![Download DMG](https://img.shields.io/badge/Download_DMG-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-mac-arm64.dmg) |
+| **macOS** | Intel (x64) | [![Download DMG](https://img.shields.io/badge/Download_DMG-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-mac-x64.dmg) |
+| **Windows** | x64 | [![Download EXE](https://img.shields.io/badge/Download_EXE-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-win-x64.exe) |
 | **Windows** | ARM64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=windows&logoColor=999999) |
 | **Linux** | x64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=linux&logoColor=999999) |
 | **Linux** | ARM64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=linux&logoColor=999999) |
