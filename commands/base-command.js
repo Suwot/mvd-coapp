@@ -1,7 +1,7 @@
 /**
- * BaseCommand – Foundation class for all native host commands
+ * BaseCommand – Foundation class for all CoApp commands
  * - Provides common structure for all command implementations
- * - Manages messaging between native host and extension
+ * - Manages messaging between CoApp and extension
  * - Offers standardized success/error/progress response methods
  * - Handles service access and dependency injection
  * - Enforces consistent command execution pattern

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Simple test script for the native host
+// Simple test script for the CoApp
 const { spawn } = require('child_process');
 const path = require('path');
 const processManager = require('./lib/process-manager');

@@ -101,7 +101,7 @@ Section -CreateManifests
 	FileOpen $0 "$INSTDIR\pro.maxvideodownloader.coapp.json" w
 	FileWrite $0 '{$\r$\n'
 	FileWrite $0 '  "name": "pro.maxvideodownloader.coapp",$\r$\n'
-	FileWrite $0 '  "description": "MAX Video Downloader Native Host",$\r$\n'
+	FileWrite $0 '  "description": "MAX Video Downloader CoApp",$\r$\n'
 	FileWrite $0 '  "path": "$1",$\r$\n'
 	FileWrite $0 '  "type": "stdio",$\r$\n'
 	FileWrite $0 '  "allowed_origins": [$\r$\n'
@@ -116,7 +116,7 @@ Section -CreateManifests
 	FileOpen $0 "$INSTDIR\max-video-downloader@rostislav.dev.json" w
 	FileWrite $0 '{$\r$\n'
 	FileWrite $0 '  "name": "pro.maxvideodownloader.coapp",$\r$\n'
-	FileWrite $0 '  "description": "MAX Video Downloader Native Host",$\r$\n'
+	FileWrite $0 '  "description": "MAX Video Downloader CoApp",$\r$\n'
 	FileWrite $0 '  "path": "$1",$\r$\n'
 	FileWrite $0 '  "type": "stdio",$\r$\n'
 	FileWrite $0 '  "allowed_extensions": [$\r$\n'

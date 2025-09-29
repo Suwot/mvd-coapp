@@ -1,7 +1,7 @@
 /**
  * ValidateConnectionCommand – Connection validation and info retrieval command
  * - Responds to connection validation requests from the extension
- * - Verifies that the native host is alive and responsive
+ * - Verifies that the CoApp is alive and responsive
  * - Returns version, location, and FFmpeg info for UI display
  * - Used during connection establishment and manual reconnection
  * - Provides diagnostics about host process status

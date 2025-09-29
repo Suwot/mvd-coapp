@@ -1,6 +1,6 @@
-# Native Host Build Resources
+# CoApp Build Resources
 
-Platform-specific build resources and assets for the MAX Video Downloader native host component.
+Platform-specific build resources and assets for the MAX Video Downloader CoApp component.
 
 ## Structure
 

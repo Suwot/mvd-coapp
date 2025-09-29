@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * MVD CoApp – Main entry point for the native host application
+ * MVD CoApp – Main entry point for the CoApp
  * - Initializes the native messaging host environment
  * - Establishes connection with browser extensions
  * - Sets up command handling and execution pipeline
@@ -110,7 +110,7 @@ function startIdleTimer() {
     clearIdleTimer();
     idleTimer = setTimeout(() => {
         if (activeOperations === 0) {
-            logDebug('Native host idle timeout - no active operations, exiting gracefully');
+            logDebug('CoApp idle timeout - no active operations, exiting gracefully');
             process.exit(0);
         }
     }, IDLE_TIMEOUT);
@@ -142,7 +142,7 @@ async function bootstrap() {
         // Start idle timer (no active operations initially)
         startIdleTimer();
         
-        logDebug('Native host application started successfully');
+        logDebug('CoApp application started successfully');
     } catch (err) {
         logDebug('Bootstrap error:', err);
         console.error('Failed to start application:', err);
