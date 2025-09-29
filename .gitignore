@@ -5,12 +5,9 @@ bin/
 host
 *.exe
 
-# Node modules
+# Node modules and miscellaneous
 node_modules/
-build-competitor.sh
-install-competitor.sh
-install-cr.sh
-native-autoinstall-competitor.js
+research/
 
 # OS files
 .DS_Store
