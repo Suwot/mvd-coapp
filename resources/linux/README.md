@@ -7,7 +7,7 @@ This is NOT a standalone app - it only works with the browser extension. It hand
 ## Requirements
 
 Install the browser extension first:  
-[Chrome Web Store](https://chromewebstore.google.com/detail/max-video-downloader-%E2%80%93-do/kjinbaahkmjgkkedfdgpkkelehofieke?utm_source=linux-coapp-readme)
+[Chrome Web Store](https://chromewebstore.google.com/detail/max-video-downloader-%E2%80%93-do/kjinbaahkmjgkkedfdgpkkelehofieke?utm_source=linux-tar&utm_medium=readme)
 
 ## Installation
 

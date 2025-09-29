@@ -10,7 +10,7 @@ xattr -dr com.apple.quarantine "/Applications/mvdcoapp.app" && open "/Applicatio
 
 This companion app works with the MAX Video Downloader browser extension.
 Download the extension from your browser's web store:
-- Chrome Web Store: https://chrome.google.com/webstore/detail/bkblnddclhmmgjlmbofhakhhbklkcofd?utm_source=mac-coapp-readme
+- Chrome Web Store: https://chrome.google.com/webstore/detail/bkblnddclhmmgjlmbofhakhhbklkcofd?mac-dmg&utm_medium=readme
 - Firefox Add-ons: Coming Soon
 - Edge Add-ons: Coming Soon
 

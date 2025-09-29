@@ -2,142 +2,197 @@
 
 **Companion application for MAX Video Downloader browser extension**
 
-Cross-platform video processing engine with FFmpeg integration for downloading HLS, DASH, and direct media files. Currently available for macOS (Intel and Apple Silicon) and Windows (x64, also works on ARM), with Linux and Windows ARM64 support coming soon.
+This repository contains the native companion app (CoApp) that enables reliable video downloading from any website. The CoApp handles video processing, format conversion, and downloads that browser extensions cannot perform due to security restrictions.
 
-## Files
+**Key features:**
+- Downloads HLS (.m3u8), DASH (.mpd), and direct video files. 
+– Makes LIVE recordings. 
+- Extracts audio and subs from media.
+- Static FFmpeg bundled inside 
+- Full anonimity, 100% local processing
+- Cross-platform support (macOS, Windows, Linux)
+- Open source and completely FREE
 
-- `LICENSE.txt` - Project license (used by Windows installer)
-- `package.json` - Node.js package configuration
-- `build-coapp.sh` - Cross-platform build script
-- `resources/` - Platform-specific build resources and assets
+**Note:** This is not a standalone application. It requires the MAX Video Downloader browser extension to function.  
 
-## Overview
+## Installation
 
-This is the companion app (CoApp) component of MAX Video Downloader. This is not a standalone application - it only works as a companion to the browser extension and has no user interface of its own.
-
-The CoApp handles video processing, format conversion, and file system operations that cannot be performed directly by browser extensions due to security restrictions.
-
-It communicates with the browser extension through Chrome's native messaging API and provides:
-
-- Video stream analysis and quality detection
-- HLS (.m3u8) and DASH (.mpd) manifest processing  
-- FFmpeg-powered video/audio downloading and conversion
-- Cross-platform file system operations
-- Progress tracking and error handling
-
-## Browser Extension
-
-Install the browser extension to use this CoApp:
+### Step 1: Install Browser Extension
 
 <table>
 <tr>
 <td align="center" width="200">
 <img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/chrome/chrome_48x48.png" width="48" height="48" alt="Chrome"><br>
 <strong>Chrome Web Store</strong><br>
-<a href="https://chromewebstore.google.com/detail/max-video-downloader-%E2%80%93-do/kjinbaahkmjgkkedfdgpkkelehofieke?utm_campaign=readme-btn&utm_medium=button&utm_source=github">
-<img src="https://img.shields.io/badge/Install-4285F4?style=for-the-badge&logo=google-chrome&logoColor=white" alt="Install from Chrome Web Store">
+<a href="https://chromewebstore.google.com/detail/max-video-downloader-%E2%80%93-do/kjinbaahkmjgkkedfdgpkkelehofieke?utm_source=github&utm_medium=readme">
+<img src="https://img.shields.io/badge/Install_Now-4285F4?style=for-the-badge&logo=google-chrome&logoColor=white" alt="Install from Chrome Web Store">
 </a>
-</td>
-<td align="center" width="200">
-<img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/firefox/firefox_48x48.png" width="48" height="48" alt="Firefox"><br>
-<strong>Firefox Add-ons</strong><br>
-<img src="https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=firefox&logoColor=999999" alt="Coming Soon">
 </td>
 <td align="center" width="200">
 <img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/edge/edge_48x48.png" width="48" height="48" alt="Edge"><br>
 <strong>Edge Add-ons</strong><br>
 <img src="https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=microsoft-edge&logoColor=999999" alt="Coming Soon">
 </td>
+<td align="center" width="200">
+<img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/firefox/firefox_48x48.png" width="48" height="48" alt="Firefox"><br>
+<strong>Firefox Add-ons</strong><br>
+<img src="https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=firefox&logoColor=999999" alt="Coming Soon">
+</td>
 </tr>
 </table>
 
-## Downloads
+### Step 2: Install CoApp
 
-Download the CoApp for your platform:
+## macOS
 
-| Platform | Architecture | Download |
-|----------|-------------|----------|
-| **macOS** | Apple Silicon (M1-M4) | [![Download DMG](https://img.shields.io/badge/Download_DMG-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-mac-arm64.dmg) |
-| **macOS** | Intel (x64) | [![Download DMG](https://img.shields.io/badge/Download_DMG-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-mac-x64.dmg) |
-| **Windows** | x64 | [![Download EXE](https://img.shields.io/badge/Download_EXE-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-win-x64.exe) |
-| **Windows** | ARM64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=windows&logoColor=999999) |
-| **Linux** | x64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=linux&logoColor=999999) |
-| **Linux** | ARM64 | ![Coming Soon](https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=linux&logoColor=999999) |
+<table>
+<thead style="background-color: #f6f8fa;">
+<tr>
+<th>Architecture</th>
+<th>Download</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Apple Silicon</strong> (M1-M4)</td>
+<td><a href="https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-mac-arm64.dmg"><img src="https://img.shields.io/badge/Download_DMG-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download DMG"></a></td>
+</tr>
+<tr>
+<td><strong>Intel</strong> (x64)</td>
+<td><a href="https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-mac-x64.dmg"><img src="https://img.shields.io/badge/Download_DMG-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download DMG"></a></td>
+</tr>
+</tbody>
+</table>
 
-## Installation
+**Installation steps:**
 
-1. **Download** the appropriate CoApp for your platform
-2. **Install** the CoApp (automatic browser registration included)
-3. **Install** the browser extension from your browser's web store
-4. **Restart** your browser to complete the setup
+1. **Download** the DMG for your architecture
+2. **Mount** the DMG by double-clicking it
+3. **Drag** `mvdcoapp.app` to your `Applications` folder
+4. **Open Terminal** and run this command to bypass Gatekeeper:
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/mvdcoapp.app" && open "/Applications/mvdcoapp.app"
+   ```
+5. Upon successful installation, you'll see a confirmation window with detected browsers
 
-The CoApp automatically registers itself with all supported browsers during installation.
+## Windows
 
-## Supported Browsers
+<table>
+<thead style="background-color: #f6f8fa;">
+<tr>
+<th>Architecture</th>
+<th>Download</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>x64</strong></td>
+<td><a href="https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-win-x64.exe"><img src="https://img.shields.io/badge/Download_EXE-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download EXE"></a></td>
+</tr>
+<tr>
+<td><strong>ARM64</strong></td>
+<td><img src="https://img.shields.io/badge/Coming_Soon-cccccc?style=for-the-badge&logo=windows&logoColor=999999" alt="Coming Soon"></td>
+</tr>
+</tbody>
+</table>
 
-- **Chrome** (Stable, Beta, Dev, Canary)
-- **Chromium-based browsers** (Arc, Edge, Brave, Opera, Vivaldi, Epic, Yandex)
-- **Firefox** (coming soon)
+**Installation steps:**
 
-## Technical Architecture
+1. **Download** and **double-click** the installer
+2. If SmartScreen appears, click **More info → Run anyway**
+3. **Follow** the setup wizard → **Install** → **Finish**
 
-- **Language:** Node.js with native binary packaging
-- **Video Processing:** Bundled FFmpeg and FFprobe binaries
-- **Communication:** Chrome Native Messaging API
-- **Packaging:** Self-contained executables with automatic installation
-- **Cross-Platform:** Single codebase with platform-specific builds
+**Verification:** Open the extension popup → Settings, you should see `CoApp: Connected`. If not, click on 'retry' button to revalidate connection.
 
-## Commands
+## Linux
 
-The CoApp supports these commands from the browser extension:
+**One-liner installation (recommended):**
+```bash
+curl -sSLf https://github.com/Suwot/mvd-coapp/releases/latest/download/install.sh | bash
+```
 
-- `download` - Video/audio download with progress tracking
-- `get-qualities` - Stream quality analysis and metadata extraction  
-- `generate-preview` - Thumbnail generation from video URLs
-- `validate-connection` - Connection validation and host information
-- `file-system` - Cross-platform file operations and dialogs
+**Manual installation:**
 
-## Development
-
-### Build Requirements
-
-- Node.js 18+
-- Platform-specific FFmpeg binaries (included)
-- pkg for binary packaging
-
-### Build Commands
+<table>
+<thead style="background-color: #f6f8fa;">
+<tr>
+<th>Architecture</th>
+<th>Download</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>x64</strong></td>
+<td><a href="https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-linux-x64.tar.gz"><img src="https://img.shields.io/badge/Download_TAR.GZ-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Download TAR.GZ"></a></td>
+</tr>
+<tr>
+<td><strong>ARM64</strong></td>
+<td><a href="https://github.com/Suwot/mvd-coapp/releases/latest/download/mvdcoapp-linux-arm64.tar.gz"><img src="https://img.shields.io/badge/Download_TAR.GZ-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Download TAR.GZ"></a></td>
+</tr>
+</tbody>
+</table>
 
 ```bash
-# Build for current platform
+tar -xzf mvdcoapp-linux-*.tar.gz
+cd mvdcoapp-linux-*
+./mvdcoapp -install
+```
+
+**Available commands:**
+- `./mvdcoapp -install` - Register with browsers
+- `./mvdcoapp -uninstall` - Remove from browsers  
+- `./mvdcoapp -version` - Show version info
+
+---
+
+**That's it!** Restart your browser and the extension will automatically connect to CoApp. No configuration needed.
+
+## For Developers
+
+All existing logic expects you to build on mac arm64. 
+
+### Prerequisites
+
+- **Node.js 18+** - heart of the coapp
+- **FFmpeg static binaries** - precompile and place them in `bin/` before building as ffmpeg / ffprobe (adding .exe for win builds)
+- **pkg** - packaging with cross-platform targets (`npm install -g pkg`)
+
+### Building
+
+**Build for current platform:**
+```bash
 ./build-coapp.sh build
+```
 
-# Build for specific platform  
+**Build for specific platform:**
+```bash
 ./build-coapp.sh build mac-arm64
+./build-coapp.sh build win-x64
+./build-coapp.sh build linux-x64
+```
 
-# Create distribution package
-./build-coapp.sh dist mac-arm64
+**Create distribution packages:**
+```bash
+./build-coapp.sh dist mac-arm64  # Creates DMG installer
+./build-coapp.sh dist win-x64    # Creates NSIS installer
+./build-coapp.sh dist linux-x64  # Creates tar.gz with install script
+```
 
-# Install system-wide (after building)
+**Local installation for testing:**
+```bash
 ./build/mac-arm64/mvdcoapp -install
-
-# Uninstall
-./build/mac-arm64/mvdcoapp -uninstall
-
-# Double-click installation
-./build/mac-arm64/mvdcoapp
 ```
 
-## Testing
+### Testing
 
-# linux-x64 via Docker:
-```
+**Docker testing for Linux platforms:**
+```bash
+# Linux x64
 docker run --rm --platform=linux/amd64 \
   -v "$(pwd)/resources/linux/install.sh":/install.sh:ro \
   linux-base bash -lc "useradd -m testuser && su - testuser -c '/install.sh'"
-```
 
-# linux-arm64 via Docker:
-```
+# Linux ARM64
 docker run --rm --platform=linux/arm64/v8 \
   -v "$(pwd)/resources/linux/install.sh":/install.sh:ro \
   linux-base-arm64 bash -lc "useradd -m testuser && su - testuser -c '/install.sh'"
@@ -145,4 +200,4 @@ docker run --rm --platform=linux/arm64/v8 \
 
 ## License
 
-MIT License
+MIT License - Free to use, modify, and distribute.
