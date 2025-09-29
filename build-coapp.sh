@@ -260,40 +260,69 @@ create_windows_package() {
 create_linux_package() {
     local platform=$1
     local build_dir="build/$platform"
-    local appdir="dist/MaxVideoDownloader-$platform.AppDir"
-    
+    local temp_dir="build/mvdcoapp"
+    local tar_name="mvdcoapp-${platform}.tar.gz"
+
     [[ ! -d "$build_dir" ]] && { log_error "Build $platform first"; exit 1; }
     [[ ! "$platform" =~ ^linux- ]] && { log_error "Linux packaging only"; exit 1; }
-    
-    log_info "Creating Linux package for $platform..."
-    
-    # Clean any existing AppDir
-    rm -rf "$appdir"
-    mkdir -p "$appdir/usr/bin"
-    
+
+    log_info "Creating Linux tarball for $platform..."
+
+    # Clean any existing temp directory and tarball
+    rm -rf "$temp_dir"
+    mkdir -p "$temp_dir"
+    rm -f "dist/$tar_name"
+
     # Copy binaries
-    cp "$build_dir"/* "$appdir/usr/bin/"
+    cp "$build_dir"/* "$temp_dir/"
+
+    # Copy additional files
+    [[ -f "LICENSE.txt" ]] && cp "LICENSE.txt" "$temp_dir/"
+    [[ -f "resources/linux/README.md" ]] && cp "resources/linux/README.md" "$temp_dir/"
+
+    # Create tarball
+    mkdir -p dist
+    tar -czf "dist/$tar_name" -C build mvdcoapp
+
+    # Clean up temp directory
+    rm -rf "$temp_dir"
+
+    log_info "✓ Created: dist/$tar_name"
+}
+
+# Copy install script to dist for publishing
+copy_install_script() {
+    log_info "Copying install script to dist/..."
     
-    # Create desktop file
-    cat > "$appdir/MaxVideoDownloader.desktop" << EOF
-[Desktop Entry]
-Type=Application
-Name=MAX Video Downloader
-Exec=mvdcoapp
-Icon=maxvideodownloader
-Categories=Network;
-EOF
+    if [[ -f "resources/linux/install.sh" ]]; then
+        cp "resources/linux/install.sh" "dist/"
+        log_info "✓ Copied install.sh to dist/"
+    else
+        log_warn "install.sh not found at resources/linux/install.sh"
+    fi
+}
+
+# Generate checksums file for all artifacts
+generate_checksums() {
+    log_info "Generating SHA256 checksums..."
     
-    # Create AppRun
-    cat > "$appdir/AppRun" << 'EOF'
-#!/bin/bash
-cd "$(dirname "$0")/usr/bin"
-./mvdcoapp
-EOF
-    chmod +x "$appdir/AppRun"
+    local checksums_file="dist/CHECKSUMS.sha256"
     
-    log_info "✓ Created: $appdir/"
-    log_info "Use appimagetool to create final .AppImage"
+    # Remove existing checksums file
+    rm -f "$checksums_file"
+    
+    # Generate SHA256 for all artifacts (excluding .DS_Store and checksums file)
+    while IFS= read -r -d '' file; do
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            shasum -a 256 "$file" >> "$checksums_file"
+        else
+            # Linux
+            sha256sum "$file" >> "$checksums_file"
+        fi
+    done < <(find dist -type f -not -name ".DS_Store" -not -name "CHECKSUMS.sha256" -print0)
+    
+    log_info "✓ Generated checksums: $checksums_file"
 }
 
 # ============================================================================
@@ -354,6 +383,17 @@ publish_release() {
     
     log_info "Found ${#artifacts[@]} CoApp artifacts to upload:"
     printf '  %s\n' "${artifacts[@]}"
+    
+    # Generate checksums for all artifacts
+    generate_checksums
+    
+    # Re-scan artifacts to include checksums file
+    artifacts=()
+    while IFS= read -r -d '' file; do
+        artifacts+=("$file")
+    done < <(find dist -type f -not -name ".DS_Store" -print0)
+    
+    log_info "Updated artifact count: ${#artifacts[@]} (including checksums)"
     
     # Upload all artifacts to the release
     log_info "Uploading to release v$version..."
@@ -423,6 +463,7 @@ case "${1:-help}" in
             linux-*) create_linux_package "$platform" ;;
             *) log_error "Unknown platform: $platform"; exit 1 ;;
         esac
+        copy_install_script
         ;;
     publish)
         publish_release
