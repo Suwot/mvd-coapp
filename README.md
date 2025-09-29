@@ -127,6 +127,22 @@ The CoApp supports these commands from the browser extension:
 ./build/mac-arm64/mvdcoapp
 ```
 
+## Testing
+
+# linux-x64 via Docker:
+```
+docker run --rm --platform=linux/amd64 \
+  -v "$(pwd)/resources/linux/install.sh":/install.sh:ro \
+  linux-base bash -lc "useradd -m testuser && su - testuser -c '/install.sh'"
+```
+
+# linux-arm64 via Docker:
+```
+docker run --rm --platform=linux/arm64/v8 \
+  -v "$(pwd)/resources/linux/install.sh":/install.sh:ro \
+  linux-base-arm64 bash -lc "useradd -m testuser && su - testuser -c '/install.sh'"
+```
+
 ## License
 
 MIT License
