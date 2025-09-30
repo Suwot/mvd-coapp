@@ -15,8 +15,41 @@
 const MessagingService = require('./lib/messaging');
 const { logDebug } = require('./utils/utils');
 
+/**
+ * Display usage information and available commands
+ */
+function showUsage() {
+    console.log('MVD CoApp - MAX Video Downloader Native Messaging Host');
+    console.log('');
+    console.log('Usage:');
+    console.log('  mvdcoapp                          Interactive installation (double-click behavior)');
+    console.log('  mvdcoapp -v, --version, -version  Show version information');
+    console.log('  mvdcoapp -h, --help, -help        Show this help message');
+    console.log('  mvdcoapp -i, --install, -install  Install CoApp for all detected browsers');
+    console.log('  mvdcoapp --uninstall, -uninstall  Remove CoApp from all browsers');
+    console.log('');
+    console.log('When run without arguments, CoApp operates as a native messaging host');
+    console.log('for browser extensions and should not be run directly.');
+}
+
 // Handle CLI commands before Chrome messaging setup
 const args = process.argv.slice(2);
+
+// Define command aliases for cross-compatibility
+const commandAliases = {
+    version: ['-v', '--version', '-version'],
+    help: ['-h', '--help', '-help'],
+    install: ['-i', '--install', '-install'],
+    uninstall: ['--uninstall', '-uninstall']
+};
+
+// Helper function to check if args contain any alias for a command
+function hasCommand(commandName) {
+    return commandAliases[commandName].some(alias => args.includes(alias));
+}
+
+// Get all valid command aliases (flattened)
+const validCommands = Object.values(commandAliases).flat();
 
 // If no arguments (double-click), run installer
 if (args.length === 0) {
@@ -31,7 +64,27 @@ if (args.length === 0) {
     return;
 }
 
-if (args.includes('-version')) {
+// Handle help command first (intentional help request)
+if (hasCommand('help')) {
+    showUsage();
+    process.exit(0);
+}
+
+// Check for invalid dash-prefixed arguments (CLI commands)
+const dashArgs = args.filter(arg => arg.startsWith('-'));
+const invalidArgs = dashArgs.filter(arg => !validCommands.includes(arg));
+
+// If there are invalid dash-prefixed arguments, show error and help
+if (invalidArgs.length > 0) {
+    console.error(`Unknown command(s): ${invalidArgs.join(', ')}`);
+    console.log('');
+    showUsage();
+    console.log('Use -h or --help for more information.');
+    process.exit(1);
+}
+
+// Handle version command
+if (hasCommand('version')) {
     // Version is embedded at build time by pkg, or fallback for development
     const version = process.env.APP_VERSION || (() => {
         try {
@@ -49,7 +102,8 @@ if (args.includes('-version')) {
     process.exit(0);
 }
 
-if (args.includes('-install')) {
+// Handle install command
+if (hasCommand('install')) {
     const installer = require('./lib/installer');
     
     installer.install().then(() => {
@@ -61,7 +115,8 @@ if (args.includes('-install')) {
     return;
 }
 
-if (args.includes('-uninstall')) {
+// Handle uninstall command
+if (hasCommand('uninstall')) {
     const installer = require('./lib/installer');
     
     installer.uninstall().then(() => {
