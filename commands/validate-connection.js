@@ -27,7 +27,7 @@ class ValidateConnectionCommand extends BaseCommand {
                 const pkg = require('../package.json');
                 return pkg.version;
             } catch {
-                return '0.1.0';
+                return '0.0.0';
             }
         })();
         

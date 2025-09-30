@@ -88,7 +88,7 @@ class GetQualitiesCommand extends BaseCommand {
                 logDebug('🔍 FFprobe analysis command:', commandLine);
                 
                 const ffprobe = spawn(ffprobePath, ffprobeArgs, { env: getFullEnv() });
-                processManager.register(ffprobe);
+                processManager.register(ffprobe, 'processing');
                 let killedByTimeout = false;
     
                 // Set timeout for FFprobe analysis
@@ -329,9 +329,15 @@ class GetQualitiesCommand extends BaseCommand {
                             resolve({ error: 'Failed to parse stream info' });
                         }
                     } else {
-                        logDebug('❌ FFprobe failed with code:', code, 'Error:', errorOutput);
-                        this.sendMessage('Failed to analyze video');
-                        resolve({ error: 'Failed to analyze video' });
+                        // Check if process was killed (code null = killed)
+                        if (code === null) {
+                            // Process was killed (likely by cache clear) - exit silently
+                            resolve({ killed: true });
+                        } else {
+                            logDebug('❌ FFprobe failed with code:', code, 'Error:', errorOutput);
+                            this.sendMessage('Failed to analyze video');
+                            resolve({ error: 'Failed to analyze video' });
+                        }
                     }
                 });
     

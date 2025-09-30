@@ -79,6 +79,7 @@ const GetQualitiesCommand = require('./commands/get-qualities');
 const GeneratePreviewCommand = require('./commands/generate-preview');
 const ValidateConnectionCommand = require('./commands/validate-connection');
 const FileSystemCommand = require('./commands/file-system');
+const processManager = require('./lib/process-manager');
 
 // Operation-based keep-alive management
 let activeOperations = 0;
@@ -158,6 +159,13 @@ const commands = {
     'generatePreview': GeneratePreviewCommand,
     'validateConnection': ValidateConnectionCommand,
     'fileSystem': FileSystemCommand,
+        'kill-processing': {
+        execute: async (params, requestId, messagingService) => {
+            logDebug('Received kill-processing command - terminating analysis processes');
+            const killCount = processManager.clearAnalysis('cache clear');
+            messagingService.sendMessage({ success: true, killedCount: killCount }, requestId);
+        }
+    },
     'quit': {
         execute: async (params, requestId, messagingService) => {
             logDebug('Received quit command - exiting gracefully');
@@ -190,11 +198,18 @@ async function processMessage(request, messagingService) {
             return { error };
         }
         
-        // Execute command directly
-        const command = new CommandClass(messagingService);
-        command.setMessageId(requestId);
-        const result = await command.execute(request);
-        return result;
+        // Handle inline commands (objects with execute function) vs classes
+        if (typeof CommandClass.execute === 'function') {
+            // Inline command object
+            const result = await CommandClass.execute(request, requestId, messagingService);
+            return result;
+        } else {
+            // Command class
+            const command = new CommandClass(messagingService);
+            command.setMessageId(requestId);
+            const result = await command.execute(request);
+            return result;
+        }
     } catch (err) {
         const errorMessage = `Error executing ${commandType || 'command'}: ${err.message}`;
         logDebug(errorMessage);

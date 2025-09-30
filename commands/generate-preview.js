@@ -77,7 +77,7 @@ class GeneratePreviewCommand extends BaseCommand {
     runFFmpeg(ffmpegPath, args, previewPath) {
         return new Promise((resolve, reject) => {
             const ffmpeg = spawn(ffmpegPath, args, { env: getFullEnv() });
-            processManager.register(ffmpeg);
+            processManager.register(ffmpeg, 'processing');
             
             let errorOutput = '';
             ffmpeg.stderr.on('data', data => errorOutput += data.toString());
@@ -98,10 +98,16 @@ class GeneratePreviewCommand extends BaseCommand {
                         reject(new Error(error));
                     }
                 } else {
-                    const error = `FFmpeg failed with code ${code}: ${errorOutput}`;
-                    logDebug('FFmpeg preview generation failed:', error);
-                    this.sendMessage({ error });
-                    reject(new Error(error));
+                    // Check if process was killed (code null = killed)
+                    if (code === null) {
+                        // Process was killed (likely by cache clear) - exit silently
+                        reject(new Error('killed'));
+                    } else {
+                        const error = `FFmpeg failed with code ${code}: ${errorOutput}`;
+                        logDebug('FFmpeg preview generation failed:', error);
+                        this.sendMessage({ error });
+                        reject(new Error(error));
+                    }
                 }
             });
             
