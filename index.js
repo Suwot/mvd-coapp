@@ -9,8 +9,6 @@
  * - Bridges browser extension with system capabilities
  */
 
-
-
 // Import core modules
 const MessagingService = require('./lib/messaging');
 const { logDebug } = require('./utils/utils');
@@ -19,17 +17,33 @@ const { logDebug } = require('./utils/utils');
  * Display usage information and available commands
  */
 function showUsage() {
+    const platform = process.platform;
+    
     console.log('MVD CoApp - MAX Video Downloader Native Messaging Host');
     console.log('');
     console.log('Usage:');
-    console.log('  mvdcoapp                          Interactive installation (double-click behavior)');
-    console.log('  mvdcoapp -v, --version, -version  Show version information');
     console.log('  mvdcoapp -h, --help, -help        Show this help message');
-    console.log('  mvdcoapp -i, --install, -install  Install CoApp for all detected browsers');
-    console.log('  mvdcoapp --uninstall, -uninstall  Remove CoApp from all browsers');
+    console.log('  mvdcoapp -v, --version, -version  Show version information');
+    
+    // Install/uninstall commands only available on macOS and Linux
+    if (platform !== 'win32') {
+        console.log('  mvdcoapp -i, --install, -install  Install CoApp for all detected browsers');
+        console.log('  mvdcoapp --uninstall, -uninstall  Remove CoApp from all browsers');
+    }
+    
     console.log('');
-    console.log('When run without arguments, CoApp operates as a native messaging host');
-    console.log('for browser extensions and should not be run directly.');
+    
+    if (platform === 'win32') {
+        console.log('On Windows, CoApp is managed by the NSIS installer/uninstaller.');
+        console.log('When called by browser extensions, CoApp operates as a native messaging host.');
+    } else {
+        console.log('When called by browser extensions, CoApp operates as a native messaging host');
+        if (platform === 'darwin') {
+            console.log('and should not be run directly without arguments.');
+        } else {
+            console.log('Use the install/uninstall commands to configure browser integration.');
+        }
+    }
 }
 
 // Handle CLI commands before Chrome messaging setup
@@ -51,17 +65,27 @@ function hasCommand(commandName) {
 // Get all valid command aliases (flattened)
 const validCommands = Object.values(commandAliases).flat();
 
-// If no arguments (double-click), run installer
+// If no arguments (double-click behavior)
 if (args.length === 0) {
-    const installer = require('./lib/installer');
-    
-    installer.install().then(() => {
+    if (process.platform === 'darwin') {
+        // macOS: Run installer on double-click
+        const installer = require('./lib/installer');
+        
+        installer.install().then(() => {
+            process.exit(0);
+        }).catch(err => {
+            console.error('Installation failed:', err.message);
+            process.exit(1);
+        });
+        return;
+    } else if (process.platform === 'win32') {
+        // Windows: Do nothing, exit silently (users should use NSIS installer)
         process.exit(0);
-    }).catch(err => {
-        console.error('Installation failed:', err.message);
-        process.exit(1);
-    });
-    return;
+    } else {
+        // Linux: Show help message for CLI usage
+        console.log('Use -h for help or -i to install CoApp for detected browsers.');
+        process.exit(0);
+    }
 }
 
 // Handle help command first (intentional help request)
@@ -70,18 +94,9 @@ if (hasCommand('help')) {
     process.exit(0);
 }
 
-// Check for invalid dash-prefixed arguments (CLI commands)
-const dashArgs = args.filter(arg => arg.startsWith('-'));
-const invalidArgs = dashArgs.filter(arg => !validCommands.includes(arg));
-
-// If there are invalid dash-prefixed arguments, show error and help
-if (invalidArgs.length > 0) {
-    console.error(`Unknown command(s): ${invalidArgs.join(', ')}`);
-    console.log('');
-    showUsage();
-    console.log('Use -h or --help for more information.');
-    process.exit(1);
-}
+// Skip strict argument validation for native messaging calls
+// Chrome may pass internal arguments that we shouldn't treat as errors
+// Only validate when we have clear user-intent arguments
 
 // Handle version command
 if (hasCommand('version')) {
@@ -102,8 +117,13 @@ if (hasCommand('version')) {
     process.exit(0);
 }
 
-// Handle install command
+// Handle install command (not available on Windows)
 if (hasCommand('install')) {
+    if (process.platform === 'win32') {
+        console.log('Install command not available on Windows. Use the Installer instead.');
+        process.exit(1);
+    }
+    
     const installer = require('./lib/installer');
     
     installer.install().then(() => {
@@ -115,8 +135,13 @@ if (hasCommand('install')) {
     return;
 }
 
-// Handle uninstall command
+// Handle uninstall command (not available on Windows)
 if (hasCommand('uninstall')) {
+    if (process.platform === 'win32') {
+        console.log('Uninstall command not available on Windows. Use the Uninstaller instead.');
+        process.exit(1);
+    }
+    
     const installer = require('./lib/installer');
     
     installer.uninstall().then(() => {
