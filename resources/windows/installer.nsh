@@ -26,7 +26,7 @@ RequestExecutionLevel user
 
 ######################################################################
 
-VIProductVersion  "${VERSION}"
+VIProductVersion  "${VERSION}.0"
 VIAddVersionKey "ProductName"  "${APP_NAME}"
 VIAddVersionKey "CompanyName"  "${COMP_NAME}"
 VIAddVersionKey "LegalCopyright"  "${COPYRIGHT}"

@@ -223,7 +223,7 @@ const commands = {
     'kill-processing': {
         execute: async (params, requestId, messagingService) => {
             logDebug('Received kill-processing command - terminating analysis processes');
-            const killCount = processManager.clearAnalysis('cache clear');
+            const killCount = processManager.clearProcessing('cache clear');
             messagingService.sendMessage({ success: true, killedCount: killCount }, requestId);
         }
     },
