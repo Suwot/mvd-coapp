@@ -13,36 +13,60 @@
 const MessagingService = require('./lib/messaging');
 const { logDebug } = require('./utils/utils');
 
+// Platform detection - explicit support for known platforms only
+const PLATFORM = process.platform;
+const IS_WINDOWS = PLATFORM === 'win32';
+const IS_MACOS = PLATFORM === 'darwin';
+const IS_LINUX = PLATFORM === 'linux';
+
+// Get app version from env or package.json
+function getVersion() {
+    return process.env.APP_VERSION || (() => {
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const packageJsonPath = path.join(__dirname, 'package.json');
+            const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+            return packageJson.version;
+        } catch {
+            return 'unknown';
+        }
+    })();
+}
+
+// Execute installer operation with error handling
+async function runInstallerOperation(operation, operationName) {
+    const installer = require('./lib/installer');
+    
+    try {
+        await installer[operation]();
+        process.exit(0);
+    } catch (err) {
+        console.error(`${operationName} failed:`, err.message);
+        process.exit(1);
+    }
+}
+
 /**
- * Display usage information and available commands
+ * Display platform-appropriate usage information
  */
 function showUsage() {
-    const platform = process.platform;
-    
     console.log('MVD CoApp - MAX Video Downloader Native Messaging Host');
     console.log('');
     console.log('Usage:');
     console.log('  mvdcoapp -h, --help, -help        Show this help message');
     console.log('  mvdcoapp -v, --version, -version  Show version information');
     
-    // Install/uninstall commands only available on macOS and Linux
-    if (platform !== 'win32') {
+    // Platform-specific commands and messaging
+    if (IS_WINDOWS) {
+        console.log('');
+        console.log('On Windows, CoApp is managed by the Installer/Uninstaller.');
+        console.log('When called by browser extensions, CoApp operates as a native messaging host.');
+    } else if (IS_MACOS || IS_LINUX) {
         console.log('  mvdcoapp -i, --install, -install  Install CoApp for all detected browsers');
         console.log('  mvdcoapp --uninstall, -uninstall  Remove CoApp from all browsers');
-    }
-    
-    console.log('');
-    
-    if (platform === 'win32') {
-        console.log('On Windows, CoApp is managed by the NSIS installer/uninstaller.');
-        console.log('When called by browser extensions, CoApp operates as a native messaging host.');
-    } else {
+        console.log('');
         console.log('When called by browser extensions, CoApp operates as a native messaging host');
-        if (platform === 'darwin') {
-            console.log('and should not be run directly without arguments.');
-        } else {
-            console.log('Use the install/uninstall commands to configure browser integration.');
-        }
     }
 }
 
@@ -62,23 +86,13 @@ function hasCommand(commandName) {
     return commandAliases[commandName].some(alias => args.includes(alias));
 }
 
-// Get all valid command aliases (flattened)
-const validCommands = Object.values(commandAliases).flat();
-
 // If no arguments (double-click behavior)
 if (args.length === 0) {
-    if (process.platform === 'darwin') {
+    if (IS_MACOS) {
         // macOS: Run installer on double-click
-        const installer = require('./lib/installer');
-        
-        installer.install().then(() => {
-            process.exit(0);
-        }).catch(err => {
-            console.error('Installation failed:', err.message);
-            process.exit(1);
-        });
+        runInstallerOperation('install', 'Installation');
         return;
-    } else if (process.platform === 'win32') {
+    } else if (IS_WINDOWS) {
         // Windows: Do nothing, exit silently (users should use NSIS installer)
         process.exit(0);
     } else {
@@ -94,62 +108,29 @@ if (hasCommand('help')) {
     process.exit(0);
 }
 
-// Skip strict argument validation for native messaging calls
-// Chrome may pass internal arguments that we shouldn't treat as errors
-// Only validate when we have clear user-intent arguments
-
 // Handle version command
 if (hasCommand('version')) {
-    // Version is embedded at build time by pkg, or fallback for development
-    const version = process.env.APP_VERSION || (() => {
-        try {
-            // Try to read version from package.json (for development/unpackaged runs)
-            const fs = require('fs');
-            const path = require('path');
-            const packageJsonPath = path.join(__dirname, 'package.json');
-            const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-            return packageJson.version;
-        } catch {
-            return 'unknown';
-        }
-    })();
-    console.log(`MVD CoApp v${version}`);
+    console.log(`MVD CoApp v${getVersion()}`);
     process.exit(0);
 }
 
 // Handle install command (not available on Windows)
 if (hasCommand('install')) {
-    if (process.platform === 'win32') {
+    if (IS_WINDOWS) {
         console.log('Install command not available on Windows. Use the Installer instead.');
         process.exit(1);
     }
-    
-    const installer = require('./lib/installer');
-    
-    installer.install().then(() => {
-        process.exit(0);
-    }).catch(err => {
-        console.error('Installation failed:', err.message);
-        process.exit(1);
-    });
+    runInstallerOperation('install', 'Installation');
     return;
 }
 
 // Handle uninstall command (not available on Windows)
 if (hasCommand('uninstall')) {
-    if (process.platform === 'win32') {
+    if (IS_WINDOWS) {
         console.log('Uninstall command not available on Windows. Use the Uninstaller instead.');
         process.exit(1);
     }
-    
-    const installer = require('./lib/installer');
-    
-    installer.uninstall().then(() => {
-        process.exit(0);
-    }).catch(err => {
-        console.error('Uninstallation failed:', err.message);
-        process.exit(1);
-    });
+    runInstallerOperation('uninstall', 'Uninstallation');
     return;
 }
 
@@ -239,7 +220,7 @@ const commands = {
     'generatePreview': GeneratePreviewCommand,
     'validateConnection': ValidateConnectionCommand,
     'fileSystem': FileSystemCommand,
-        'kill-processing': {
+    'kill-processing': {
         execute: async (params, requestId, messagingService) => {
             logDebug('Received kill-processing command - terminating analysis processes');
             const killCount = processManager.clearAnalysis('cache clear');
