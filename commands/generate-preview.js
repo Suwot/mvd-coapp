@@ -53,7 +53,7 @@ class GeneratePreviewCommand extends BaseCommand {
             
             // Add format-specific options
             if (type === 'hls') {
-                args.push('-allowed_extensions', 'ALL', '-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '3M');
+                args.push('-allowed_extensions', 'ALL', '-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '3M', '-f', 'hls');
             } else if (type === 'dash') {
                 args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '3M', '-dash_allow_hier_sidx', '1');
             }

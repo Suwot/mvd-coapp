@@ -60,6 +60,11 @@ class GetQualitiesCommand extends BaseCommand {
                     '-show_format'
                 ];
                 
+                // Add format-specific options
+                if (type === 'hls') {
+                    ffprobeArgs.push('-f', 'hls');
+                }
+                
                 // Add headers if provided
                 if (headers && Object.keys(headers).length > 0) {
                     // Format headers for FFprobe as "Key: Value\r\n" pairs
