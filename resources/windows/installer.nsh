@@ -2,8 +2,9 @@ ManifestDPIAware true
 
 ######################################################################
 
-# User-level installation - no admin privileges required
-RequestExecutionLevel user
+# System-level installation - admin privileges required
+# This installer writes only to HKLM (system-wide) using the 64-bit registry view. 32-bit view is intentionally not used.
+RequestExecutionLevel admin
 
 ######################################################################
 
@@ -13,14 +14,14 @@ RequestExecutionLevel user
   !define VERSION "1.0.0"
 !endif
 !define COPYRIGHT "Rostislav"
-!define DESCRIPTION "MAX Video Downloader CoApp"
+!define DESCRIPTION "MAX Video Downloader Companion Application"
 !define INSTALLER_NAME "mvdcoapp-installer.exe"
 !define MAIN_APP_EXE "mvdcoapp.exe"
 !define ICON "icon.ico"
 !define LICENSE_TXT "LICENSE.txt"
-!define INSTALL_DIR "$LOCALAPPDATA\${APP_NAME}"
-!define INSTALL_TYPE "SetShellVarContext current"
-!define REG_ROOT "HKCU"
+!define INSTALL_DIR "$PROGRAMFILES64\${APP_NAME}"
+!define INSTALL_TYPE "SetShellVarContext all"
+!define REG_ROOT "HKLM"
 !define REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${MAIN_APP_EXE}"
 !define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 
@@ -42,6 +43,12 @@ OutFile "${INSTALLER_NAME}"
 BrandingText "${APP_NAME}"
 InstallDirRegKey "${REG_ROOT}" "${REG_APP_PATH}" ""
 InstallDir "${INSTALL_DIR}"
+
+######################################################################
+
+Function .onInit
+	SetRegView 64
+FunctionEnd
 
 ######################################################################
 
@@ -95,15 +102,15 @@ Section -CreateManifests
 	DetailPrint "Creating browser manifests..."
 	SetDetailsPrint listonly
 
-	# Escape backslashes in path for JSON
+	# Build absolute path for JSON
 	StrCpy $1 "$INSTDIR\mvdcoapp.exe"
 	${StrRep} $1 $1 "\" "\\"
 
-	# Create Chrome manifest
-	FileOpen $0 "$INSTDIR\pro.maxvideodownloader.coapp.json" w
+	# Create Chromium manifest
+	FileOpen $0 "$INSTDIR\chromium-manifest.json" w
 	FileWrite $0 '{$\r$\n'
 	FileWrite $0 '  "name": "pro.maxvideodownloader.coapp",$\r$\n'
-	FileWrite $0 '  "description": "MAX Video Downloader CoApp",$\r$\n'
+	FileWrite $0 '  "description": "MAX Video Downloader Companion Application",$\r$\n'
 	FileWrite $0 '  "path": "$1",$\r$\n'
 	FileWrite $0 '  "type": "stdio",$\r$\n'
 	FileWrite $0 '  "allowed_origins": [$\r$\n'
@@ -115,10 +122,10 @@ Section -CreateManifests
 	FileClose $0
 
 	# Create Firefox manifest
-	FileOpen $0 "$INSTDIR\max-video-downloader@rostislav.dev.json" w
+	FileOpen $0 "$INSTDIR\mozilla-manifest.json" w
 	FileWrite $0 '{$\r$\n'
 	FileWrite $0 '  "name": "pro.maxvideodownloader.coapp",$\r$\n'
-	FileWrite $0 '  "description": "MAX Video Downloader CoApp",$\r$\n'
+	FileWrite $0 '  "description": "MAX Video Downloader Companion Application",$\r$\n'
 	FileWrite $0 '  "path": "$1",$\r$\n'
 	FileWrite $0 '  "type": "stdio",$\r$\n'
 	FileWrite $0 '  "allowed_extensions": [$\r$\n'
@@ -136,17 +143,17 @@ Section -RegisterBrowsers
 	DetailPrint "Registering with browsers..."
 	SetDetailsPrint listonly
 
-	# Chrome/Chromium browsers - register manifest path
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\pro.maxvideodownloader.coapp.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\pro.maxvideodownloader.coapp.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\pro.maxvideodownloader.coapp.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\pro.maxvideodownloader.coapp.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Opera Software\Opera\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\pro.maxvideodownloader.coapp.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\pro.maxvideodownloader.coapp.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\pro.maxvideodownloader.coapp.json"
+	# Chrome/Chromium family (system-wide, HKLM)
+	WriteRegStr ${REG_ROOT} "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	WriteRegStr ${REG_ROOT} "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	WriteRegStr ${REG_ROOT} "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	WriteRegStr ${REG_ROOT} "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	WriteRegStr ${REG_ROOT} "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	WriteRegStr ${REG_ROOT} "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	WriteRegStr ${REG_ROOT} "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
 
-	# Firefox browsers - register manifest path
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Mozilla\NativeMessagingHosts\max-video-downloader@rostislav.dev" "" "$INSTDIR\max-video-downloader@rostislav.dev.json"
+	# Firefox (system-wide, HKLM)
+	WriteRegStr ${REG_ROOT} "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\mozilla-manifest.json"
 
 SectionEnd
 
@@ -181,13 +188,13 @@ Section Uninstall
 
 	# Remove browser registrations
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	DeleteRegKey ${REG_ROOT} "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Opera Software\Opera\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Mozilla\NativeMessagingHosts\max-video-downloader@rostislav.dev"
+	DeleteRegKey ${REG_ROOT} "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	DeleteRegKey ${REG_ROOT} "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 
 	# Remove application registration
 	DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
@@ -197,8 +204,8 @@ Section Uninstall
 	Delete "$INSTDIR\mvdcoapp.exe"
 	Delete "$INSTDIR\ffmpeg.exe"
 	Delete "$INSTDIR\ffprobe.exe"
-	Delete "$INSTDIR\pro.maxvideodownloader.coapp.json"
-	Delete "$INSTDIR\max-video-downloader@rostislav.dev.json"
+	Delete "$INSTDIR\chromium-manifest.json"
+	Delete "$INSTDIR\mozilla-manifest.json"
 	Delete "$INSTDIR\uninstall.exe"
 	RmDir "$INSTDIR"
 
