@@ -9,7 +9,9 @@ RequestExecutionLevel user
 
 !define APP_NAME "MAX Video Downloader CoApp"
 !define COMP_NAME "MAX Video Downloader"
-!define VERSION "0.6.0"
+!ifndef VERSION
+  !define VERSION "1.0.0"
+!endif
 !define COPYRIGHT "Rostislav"
 !define DESCRIPTION "MAX Video Downloader CoApp"
 !define INSTALLER_NAME "mvdcoapp-installer.exe"
@@ -24,7 +26,7 @@ RequestExecutionLevel user
 
 ######################################################################
 
-VIProductVersion  "${VERSION}.0"
+VIProductVersion  "${VERSION}"
 VIAddVersionKey "ProductName"  "${APP_NAME}"
 VIAddVersionKey "CompanyName"  "${COMP_NAME}"
 VIAddVersionKey "LegalCopyright"  "${COPYRIGHT}"
@@ -35,7 +37,7 @@ VIAddVersionKey "FileVersion" "${VERSION}"
 
 SetCompressor /SOLID Lzma
 Name "${APP_NAME}"
-Caption "${APP_NAME}"
+Caption "${APP_NAME} ${VERSION}"
 OutFile "${INSTALLER_NAME}"
 BrandingText "${APP_NAME}"
 InstallDirRegKey "${REG_ROOT}" "${REG_APP_PATH}" ""

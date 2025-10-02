@@ -238,7 +238,7 @@ create_windows_package() {
     # Compile NSIS installer
     log_info "Compiling NSIS installer..."
     cd "$nsis_dir"
-    if makensis installer.nsh; then
+    if makensis -DVERSION=$VERSION installer.nsh; then
         # Move the created installer to the dist directory
         local installer_name="mvdcoapp-${platform}.exe"
         mkdir -p ../../dist
