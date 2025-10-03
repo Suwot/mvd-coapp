@@ -159,7 +159,7 @@ download_with_retry() {
       sleep $wait_time
     fi
     
-    if curl -fL --connect-timeout 30 --max-time 300 "$url" -o "$output"; then
+    if curl -fL --connect-timeout 30 --max-time 1800 "$url" -o "$output"; then
       return 0
     fi
     

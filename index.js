@@ -88,16 +88,12 @@ function hasCommand(commandName) {
 
 // If no arguments (double-click behavior)
 if (args.length === 0) {
-    if (IS_MACOS) {
-        // macOS: Run installer on double-click
+    if (IS_MACOS || IS_LINUX) {
+        // macOS/Linux: Run installer on double-click
         runInstallerOperation('install', 'Installation');
         return;
     } else if (IS_WINDOWS) {
         // Windows: Do nothing, exit silently (users should use NSIS installer)
-        process.exit(0);
-    } else {
-        // Linux: Show help message for CLI usage
-        console.log('Use -h for help or -i to install CoApp for detected browsers.');
         process.exit(0);
     }
 }
