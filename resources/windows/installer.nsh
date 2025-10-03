@@ -62,7 +62,6 @@ FunctionEnd
 ${Using:StrFunc} StrRep
 
 !define MUI_ABORTWARNING
-!define MUI_UNABORTWARNING
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "${LICENSE_TXT}"
@@ -85,13 +84,62 @@ Section -MainProgram
 	DetailPrint "Installing MAX Video Downloader CoApp..."
 	SetDetailsPrint listonly
 
-	SetOverwrite ifnewer
+	# Stop any running instances (active downloads will be terminated)
+	SetDetailsPrint textonly
+	DetailPrint "Stopping any running instances..."
+	SetDetailsPrint listonly
+	
+	# Kill process - simple approach, ignore if already dead
+	nsExec::ExecToStack 'taskkill /f /im mvdcoapp.exe /t'
+	Sleep 1000
+	
+	# Brief pause for handle cleanup
+	Sleep 500
+
+	SetDetailsPrint textonly
+	DetailPrint "Installing application files..."
+	SetDetailsPrint listonly
+
+	SetOverwrite on  # Force overwrite regardless of timestamps
 	SetOutPath "$INSTDIR"
 	
-	# Install binaries
+	# Try copy-first approach to avoid delete-before-copy race condition
+	ClearErrors
 	File "mvdcoapp.exe"
+	${If} ${Errors}
+		# Copy failed, likely file in use - schedule for reboot and retry once
+		Delete /REBOOTOK "$INSTDIR\mvdcoapp.exe"
+		ClearErrors
+		File "mvdcoapp.exe"
+		${If} ${Errors}
+			MessageBox MB_OK|MB_ICONSTOP "Failed to install mvdcoapp.exe. Please close all browsers and try again."
+			Abort
+		${EndIf}
+	${EndIf}
+	
+	ClearErrors
 	File "ffmpeg.exe"
+	${If} ${Errors}
+		Delete /REBOOTOK "$INSTDIR\ffmpeg.exe"
+		ClearErrors
+		File "ffmpeg.exe"
+		${If} ${Errors}
+			MessageBox MB_OK|MB_ICONSTOP "Failed to install ffmpeg.exe. Please close all browsers and try again."
+			Abort
+		${EndIf}
+	${EndIf}
+	
+	ClearErrors
 	File "ffprobe.exe"
+	${If} ${Errors}
+		Delete /REBOOTOK "$INSTDIR\ffprobe.exe"
+		ClearErrors
+		File "ffprobe.exe"
+		${If} ${Errors}
+			MessageBox MB_OK|MB_ICONSTOP "Failed to install ffprobe.exe. Please close all browsers and try again."
+			Abort
+		${EndIf}
+	${EndIf}
 
 SectionEnd
 
@@ -143,17 +191,8 @@ Section -CreateDataDirectory
 	DetailPrint "Creating application data directory..."
 	SetDetailsPrint listonly
 
-	# Create ProgramData directory for logs
+	# Create ProgramData directory for logs (basic creation only)
 	CreateDirectory "$PROGRAMDATA\${APP_NAME}"
-	
-	# Grant modify permissions to Authenticated Users (S-1-5-11) with inheritance
-	nsExec::ExecToStack 'icacls "$PROGRAMDATA\${APP_NAME}" /grant *S-1-5-11:(OI)(CI)(M)'
-	Pop $0  # exit code
-	Pop $1  # output (optional)
-	
-	# Pre-create the log file to ensure first write succeeds
-	FileOpen $0 "$PROGRAMDATA\${APP_NAME}\mvdcoapp.log" a
-	FileClose $0
 
 SectionEnd
 
@@ -207,6 +246,10 @@ Section Uninstall
 	DetailPrint "Removing MAX Video Downloader CoApp..."
 	SetDetailsPrint listonly
 
+	# Stop any running instances (mirror install process)
+	nsExec::ExecToStack 'taskkill /f /im mvdcoapp.exe /t'
+	Sleep 1000
+
 	# Remove browser registrations
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp"
@@ -221,17 +264,16 @@ Section Uninstall
 	DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
 	DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
 
-	# Remove files and directory
-	Delete "$INSTDIR\mvdcoapp.exe"
-	Delete "$INSTDIR\ffmpeg.exe"
-	Delete "$INSTDIR\ffprobe.exe"
+	# Remove files and directory (use /REBOOTOK for consistency)
+	Delete /REBOOTOK "$INSTDIR\mvdcoapp.exe"
+	Delete /REBOOTOK "$INSTDIR\ffmpeg.exe"
+	Delete /REBOOTOK "$INSTDIR\ffprobe.exe"
 	Delete "$INSTDIR\chromium-manifest.json"
 	Delete "$INSTDIR\mozilla-manifest.json"
 	Delete "$INSTDIR\uninstall.exe"
 	RmDir "$INSTDIR"
 	
 	# Remove ProgramData directory (only if empty)
-	Delete "$PROGRAMDATA\${APP_NAME}\mvdcoapp.log"
 	RmDir "$PROGRAMDATA\${APP_NAME}"
 
 SectionEnd
