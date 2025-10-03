@@ -23,15 +23,16 @@ function getLogFilePath() {
     const platform = process.platform;
     
     if (platform === 'win32') {
-        // Windows: Same directory as mvdcoapp.exe (respects user's installation choice)
-        baseDir = path.dirname(process.execPath);
+        // Windows: Use ProgramData for system-wide logging (same structure as Program Files)
+        const programData = process.env.PROGRAMDATA || 'C:\\ProgramData';
+        baseDir = path.join(programData, 'MAX Video Downloader CoApp');
     } else if (platform === 'darwin') {
         // macOS: ~/Library/Logs/MAX Video Downloader CoApp
         baseDir = path.join(os.homedir(), 'Library', 'Logs', 'MAX Video Downloader CoApp');
     } else {
-        // Linux/Unix: $XDG_STATE_HOME/mvd-coapp/logs (fallback ~/.local/state/mvd-coapp/logs)
+        // Linux/Unix: $XDG_STATE_HOME/mvd-coapp (fallback ~/.local/state/mvd-coapp)
         const xdgStateHome = process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state');
-        baseDir = path.join(xdgStateHome, 'mvd-coapp', 'logs');
+        baseDir = path.join(xdgStateHome, 'mvd-coapp');
     }
     
     // Check for directory override
@@ -39,24 +40,22 @@ function getLogFilePath() {
         baseDir = process.env.MVD_LOG_DIR;
     }
     
-    // Try to create the directory (skip for Windows exe dir, assume it's writable)
-    if (platform !== 'win32') {
+    // Try to create the directory (always attempt for Windows ProgramData)
+    try {
+        if (!fs.existsSync(baseDir)) {
+            fs.mkdirSync(baseDir, { recursive: true });
+        }
+    } catch (err) {
+        // Fallback to temp directory
+        const fallbackDir = path.join(os.tmpdir(), 'mvd-coapp');
         try {
-            if (!fs.existsSync(baseDir)) {
-                fs.mkdirSync(baseDir, { recursive: true });
+            if (!fs.existsSync(fallbackDir)) {
+                fs.mkdirSync(fallbackDir, { recursive: true });
             }
-        } catch (err) {
-            // Fallback to temp directory
-            const fallbackDir = path.join(os.tmpdir(), 'mvd-coapp', 'logs');
-            try {
-                if (!fs.existsSync(fallbackDir)) {
-                    fs.mkdirSync(fallbackDir, { recursive: true });
-                }
-                baseDir = fallbackDir;
-            } catch (fallbackErr) {
-                // Last resort: just use temp dir directly
-                baseDir = os.tmpdir();
-            }
+            baseDir = fallbackDir;
+        } catch (fallbackErr) {
+            // Last resort: just use temp dir directly
+            baseDir = os.tmpdir();
         }
     }
     
@@ -67,9 +66,44 @@ const LOG_FILE = getLogFilePath();
 
 function logDebug(...args) {
     try {
-        const message = args.map(arg => 
-            typeof arg === 'object' ? JSON.stringify(arg) : arg
-        ).join(' ');
+        // Check for log rotation (rotate at 10MB)
+        try {
+            const stats = fs.statSync(LOG_FILE);
+            if (stats.size > 10 * 1024 * 1024) { // 10MB
+                const backupFile = `${LOG_FILE}.1`;
+                try {
+                    fs.renameSync(LOG_FILE, backupFile);
+                } catch (rotateErr) {
+                    // If rotation fails, truncate the current file
+                    fs.truncateSync(LOG_FILE, 0);
+                }
+            }
+        } catch (statErr) {
+            // File doesn't exist yet, that's fine
+        }
+        
+        // Safer stringify with circular reference protection
+        const message = args.map(arg => {
+            if (typeof arg === 'object' && arg !== null) {
+                try {
+                    // Use a WeakSet to track circular references without mutation
+                    const seen = new WeakSet();
+                    return JSON.stringify(arg, (key, value) => {
+                        if (typeof value === 'object' && value !== null) {
+                            if (seen.has(value)) {
+                                return '[Circular]';
+                            }
+                            seen.add(value);
+                        }
+                        return value;
+                    });
+                } catch (jsonErr) {
+                    return `[Object: ${jsonErr.message}]`;
+                }
+            }
+            return arg;
+        }).join(' ');
+        
         fs.appendFileSync(LOG_FILE, `${new Date().toISOString()} - ${message}\n`);
     } catch (err) {
         // Silently drop log lines if writing fails (disk full, permissions, etc.)

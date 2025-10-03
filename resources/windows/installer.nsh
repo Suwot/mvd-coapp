@@ -138,6 +138,27 @@ SectionEnd
 
 ######################################################################
 
+Section -CreateDataDirectory
+	SetDetailsPrint textonly
+	DetailPrint "Creating application data directory..."
+	SetDetailsPrint listonly
+
+	# Create ProgramData directory for logs
+	CreateDirectory "$PROGRAMDATA\${APP_NAME}"
+	
+	# Grant modify permissions to Authenticated Users (S-1-5-11) with inheritance
+	nsExec::ExecToStack 'icacls "$PROGRAMDATA\${APP_NAME}" /grant *S-1-5-11:(OI)(CI)(M)'
+	Pop $0  # exit code
+	Pop $1  # output (optional)
+	
+	# Pre-create the log file to ensure first write succeeds
+	FileOpen $0 "$PROGRAMDATA\${APP_NAME}\mvdcoapp.log" a
+	FileClose $0
+
+SectionEnd
+
+######################################################################
+
 Section -RegisterBrowsers
 	SetDetailsPrint textonly
 	DetailPrint "Registering with browsers..."
@@ -208,5 +229,9 @@ Section Uninstall
 	Delete "$INSTDIR\mozilla-manifest.json"
 	Delete "$INSTDIR\uninstall.exe"
 	RmDir "$INSTDIR"
+	
+	# Remove ProgramData directory (only if empty)
+	Delete "$PROGRAMDATA\${APP_NAME}\mvdcoapp.log"
+	RmDir "$PROGRAMDATA\${APP_NAME}"
 
 SectionEnd
