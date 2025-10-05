@@ -134,6 +134,7 @@ if (hasCommand('uninstall')) {
 const DownloadCommand = require('./commands/download');
 const GetQualitiesCommand = require('./commands/get-qualities');
 const GeneratePreviewCommand = require('./commands/generate-preview');
+// TODO: Remove legacy validateConnection command on 20 October 2025 (after all extensions are updated to use startup event)
 const ValidateConnectionCommand = require('./commands/validate-connection');
 const FileSystemCommand = require('./commands/file-system');
 const processManager = require('./lib/process-manager');
@@ -197,6 +198,29 @@ async function bootstrap() {
             }
         );
         
+        // Send connection info on startup (unsolicited event)
+        const version = process.env.APP_VERSION || (() => {
+            try {
+                const pkg = require('./package.json');
+                return pkg.version;
+            } catch {
+                return '0.0.0';
+            }
+        })();
+        const connectionInfo = {
+            command: 'validateConnection',
+            alive: true,
+            success: true,
+            version: version,
+            location: process.execPath || process.argv[0],
+            ffmpegVersion: '7.1.1', // Default bundled version
+            arch: process.arch,
+            platform: process.platform,
+            pid: process.pid,
+            capabilities: ['download', 'get-qualities', 'generate-preview', 'file-system', 'kill-processing']
+        };
+        messagingService.sendMessage(connectionInfo);
+        
         // Start idle timer (no active operations initially)
         startIdleTimer();
         
@@ -214,6 +238,7 @@ const commands = {
     'cancel-download': DownloadCommand,
     'getQualities': GetQualitiesCommand,
     'generatePreview': GeneratePreviewCommand,
+    // TODO: Remove legacy validateConnection command on 20 October 2025 (after all extensions are updated to use startup event)
     'validateConnection': ValidateConnectionCommand,
     'fileSystem': FileSystemCommand,
     'kill-processing': {

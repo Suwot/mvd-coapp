@@ -1,5 +1,6 @@
 /**
  * ValidateConnectionCommand – Connection validation and info retrieval command
+ * TODO: Remove legacy command on 20 October 2025 (after all extensions are updated to use startup event)
  * - Responds to connection validation requests from the extension
  * - Verifies that the CoApp is alive and responsive
  * - Returns version, location, and FFmpeg info for UI display
@@ -53,7 +54,11 @@ class ValidateConnectionCommand extends BaseCommand {
             success: true,
             version: version,
             location: location,
-            ffmpegVersion: ffmpegVersion
+            ffmpegVersion: ffmpegVersion,
+            arch: process.arch,
+            platform: process.platform,
+            pid: process.pid,
+            capabilities: ['download', 'get-qualities', 'generate-preview', 'file-system', 'kill-processing']
         };
         
         // Send connection validation response with host info
