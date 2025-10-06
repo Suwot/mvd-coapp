@@ -210,13 +210,14 @@ async function bootstrap() {
         const connectionInfo = {
             command: 'validateConnection',
             alive: true,
-            success: true,
+            success: true, // not used anymore
             version: version,
             location: process.execPath || process.argv[0],
             ffmpegVersion: '7.1.1', // Default bundled version
             arch: process.arch,
             platform: process.platform,
             pid: process.pid,
+            lastValidation: Date.now(),
             capabilities: ['download', 'get-qualities', 'generate-preview', 'file-system', 'kill-processing']
         };
         messagingService.sendMessage(connectionInfo);

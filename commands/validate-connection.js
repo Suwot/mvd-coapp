@@ -51,13 +51,14 @@ class ValidateConnectionCommand extends BaseCommand {
         const response = {
             command: 'validateConnection',
             alive: true,
-            success: true,
+            success: true, // not used anymore
             version: version,
             location: location,
             ffmpegVersion: ffmpegVersion,
             arch: process.arch,
             platform: process.platform,
             pid: process.pid,
+            lastValidation: Date.now(),
             capabilities: ['download', 'get-qualities', 'generate-preview', 'file-system', 'kill-processing']
         };
         
