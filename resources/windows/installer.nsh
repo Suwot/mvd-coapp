@@ -46,8 +46,13 @@ InstallDir "${INSTALL_DIR}"
 
 ######################################################################
 
+Var PROGRAMDATA_DIR
+
+######################################################################
+
 Function .onInit
 	SetRegView 64
+	ReadEnvStr $PROGRAMDATA_DIR "PROGRAMDATA"
 FunctionEnd
 
 ######################################################################
@@ -192,7 +197,7 @@ Section -CreateDataDirectory
 	SetDetailsPrint listonly
 
 	# Create ProgramData directory for logs (basic creation only)
-	CreateDirectory "$PROGRAMDATA\${APP_NAME}"
+	CreateDirectory "$PROGRAMDATA_DIR\${APP_NAME}"
 
 SectionEnd
 
@@ -274,6 +279,6 @@ Section Uninstall
 	RmDir "$INSTDIR"
 	
 	# Remove ProgramData directory (only if empty)
-	RmDir "$PROGRAMDATA\${APP_NAME}"
+	RmDir "$PROGRAMDATA_DIR\${APP_NAME}"
 
 SectionEnd
