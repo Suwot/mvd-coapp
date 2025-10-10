@@ -47,8 +47,9 @@ class FileSystemCommand extends BaseCommand {
             }
         } catch (error) {
             logDebug(`FileSystem operation failed: ${operation}`, error);
-            this.sendMessage({ error: error.message });
-            return { error: error.message };
+            const errorResponse = { error: error.message, key: error.key || null };
+            this.sendMessage(errorResponse);
+            return errorResponse;
         }
     }
 
@@ -126,6 +127,15 @@ class FileSystemCommand extends BaseCommand {
             throw new Error('No directory selected');
         }
 
+        // Check write permissions
+        try {
+            await fs.promises.access(selectedPath, fs.constants.W_OK);
+        } catch {
+            const error = new Error('Selected directory is not writable. Please choose a different location.');
+            error.key = 'directoryNotWritable';
+            throw error;
+        }
+
         const result = { success: true, operation: 'chooseDirectory', selectedPath };
         this.sendMessage(result);
         return result;
@@ -154,6 +164,16 @@ class FileSystemCommand extends BaseCommand {
         // Always return path, directory, and filename for clarity
         const directory = path.dirname(selectedPath);
         const filename = path.basename(selectedPath);
+
+        // Check write permissions on the directory
+        try {
+            await fs.promises.access(directory, fs.constants.W_OK);
+        } catch {
+            const error = new Error('Selected directory is not writable. Please choose a different location.');
+            error.key = 'directoryNotWritable';
+            throw error;
+        }
+
         const result = {
             success: true,
             operation: 'chooseSaveLocation',
