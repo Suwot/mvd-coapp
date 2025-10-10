@@ -206,23 +206,23 @@ class FileSystemCommand extends BaseCommand {
      */
     getChooseDirectoryCommand(title, defaultPath) {
         if (process.platform === 'darwin') {
-            let script = `set chosenFolder to choose folder with prompt "${title}"`;
+            const escAS = s => String(s).replace(/"/g, '\\"');
+            let script = `set chosenFolder to choose folder with prompt "${escAS(title)}"`;
             if (defaultPath && fs.existsSync(defaultPath)) {
-                script += ` default location "${defaultPath}"`;
+                script += ` default location POSIX file "${escAS(defaultPath)}"`;
             }
-            script += `
-return POSIX path of chosenFolder`;
+            script += `\nreturn POSIX path of chosenFolder`;
             return { cmd: 'osascript', args: ['-e', script] };
         } else if (process.platform === 'win32') {
-            let script = `Add-Type -AssemblyName System.Windows.Forms; 
-                $browser = New-Object System.Windows.Forms.FolderBrowserDialog; 
-                $browser.Description = '${title}';`;
-            if (defaultPath && fs.existsSync(defaultPath)) {
-                script += ` $browser.SelectedPath = '${defaultPath}';`;
-            }
-            script += ` $browser.RootFolder = 'MyComputer'; 
-                if($browser.ShowDialog() -eq 'OK') { $browser.SelectedPath }`;
-            return { cmd: 'powershell', args: ['-Command', script] };
+            const escPS = s => String(s).replace(/'/g, "''");
+            const script = `
+Add-Type -AssemblyName System.Windows.Forms;
+$browser = New-Object System.Windows.Forms.FolderBrowserDialog;
+$browser.Description = '${escPS(title)}';
+$browser.RootFolder = 'MyComputer';
+if ($browser.ShowDialog() -eq 'OK') { $browser.SelectedPath }
+`;
+            return { cmd: 'powershell', args: ['-NoProfile','-STA','-Command', script] };
         } else {
             throw new Error('Unsupported platform');
         }
@@ -233,23 +233,27 @@ return POSIX path of chosenFolder`;
      */
     getChooseSaveLocationCommand(defaultName, title, defaultPath) {
         if (process.platform === 'darwin') {
-            let script = `set chosenFile to choose file name with prompt "${title}" default name "${defaultName}"`;
+            const escAS = s => String(s).replace(/"/g, '\\"');
+            let script = `set chosenFile to choose file name with prompt "${escAS(title)}" default name "${escAS(defaultName)}"`;
             if (defaultPath && fs.existsSync(defaultPath)) {
-                script += ` default location "${defaultPath}"`;
+                script += ` default location POSIX file "${escAS(defaultPath)}"`;
             }
             script += `
 return POSIX path of chosenFile`;
             return { cmd: 'osascript', args: ['-e', script] };
         } else if (process.platform === 'win32') {
+            const escPS = s => String(s).replace(/'/g, "''");
             let script = `Add-Type -AssemblyName System.Windows.Forms; 
                 $saveDialog = New-Object System.Windows.Forms.SaveFileDialog; 
-                $saveDialog.Title = '${title}'; 
-                $saveDialog.FileName = '${defaultName}';`;
+                $saveDialog.Title = '${escPS(title)}'; 
+                $saveDialog.FileName = '${escPS(defaultName)}';`;
             if (defaultPath && fs.existsSync(defaultPath)) {
-                script += ` $saveDialog.InitialDirectory = '${defaultPath}';`;
+                script += ` $saveDialog.InitialDirectory = '${escPS(defaultPath)}';`;
+            } else {
+                script += ` $downloadsPath = [Environment]::GetFolderPath('Downloads'); $saveDialog.InitialDirectory = $downloadsPath;`;
             }
             script += ` if($saveDialog.ShowDialog() -eq 'OK') { $saveDialog.FileName }`;
-            return { cmd: 'powershell', args: ['-Command', script] };
+            return { cmd: 'powershell', args: ['-NoProfile','-STA','-Command', script] };
         } else {
             throw new Error('Unsupported platform');
         }
@@ -361,7 +365,8 @@ return POSIX path of chosenFile`;
      * @param {string} directoryPath - Directory to test
      */
     async testWritePermissions(directoryPath) {
-        const testFile = path.join(directoryPath, 'maxvd_test_write.tmp');
+        const uniqueId = require('crypto').randomUUID();
+        const testFile = path.join(directoryPath, `maxvd_test_write_${uniqueId}.tmp`);
         
         try {
             // Try to create a test file
