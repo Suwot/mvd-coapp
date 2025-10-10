@@ -133,12 +133,12 @@ class FileSystemCommand extends BaseCommand {
 
     /**
      * Show save file dialog
-     * @param {Object} params - { defaultName?: string, title?: string }
+     * @param {Object} params - { defaultName?: string, title?: string, defaultPath?: string }
      */
     async chooseSaveLocation(params) {
-        const { defaultName = 'untitled', title = 'Save As' } = params;
+        const { defaultName = 'untitled', title = 'Save As', defaultPath } = params;
 
-        const command = this.getChooseSaveLocationCommand(defaultName, title);
+        const command = this.getChooseSaveLocationCommand(defaultName, title, defaultPath);
         const output = await this.executeCommand(command.cmd, command.args, true);
 
         // Parse output to get selected path
@@ -216,17 +216,24 @@ return POSIX path of chosenFolder`;
     /**
      * Get platform-specific command for save file dialog
      */
-    getChooseSaveLocationCommand(defaultName, title) {
+    getChooseSaveLocationCommand(defaultName, title, defaultPath) {
         if (process.platform === 'darwin') {
-            const script = `set chosenFile to choose file name with prompt "${title}" default name "${defaultName}"
+            let script = `set chosenFile to choose file name with prompt "${title}" default name "${defaultName}"`;
+            if (defaultPath && fs.existsSync(defaultPath)) {
+                script += ` default location "${defaultPath}"`;
+            }
+            script += `
 return POSIX path of chosenFile`;
             return { cmd: 'osascript', args: ['-e', script] };
         } else if (process.platform === 'win32') {
-            const script = `Add-Type -AssemblyName System.Windows.Forms; 
+            let script = `Add-Type -AssemblyName System.Windows.Forms; 
                 $saveDialog = New-Object System.Windows.Forms.SaveFileDialog; 
                 $saveDialog.Title = '${title}'; 
-                $saveDialog.FileName = '${defaultName}'; 
-                if($saveDialog.ShowDialog() -eq 'OK') { $saveDialog.FileName }`;
+                $saveDialog.FileName = '${defaultName}';`;
+            if (defaultPath && fs.existsSync(defaultPath)) {
+                script += ` $saveDialog.InitialDirectory = '${defaultPath}';`;
+            }
+            script += ` if($saveDialog.ShowDialog() -eq 'OK') { $saveDialog.FileName }`;
             return { cmd: 'powershell', args: ['-Command', script] };
         } else {
             throw new Error('Unsupported platform');
