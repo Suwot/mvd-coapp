@@ -53,13 +53,13 @@ class GeneratePreviewCommand extends BaseCommand {
             
             // Add format-specific options
             if (type === 'hls') {
-                args.push('-allowed_extensions', 'ALL', '-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '3M', '-f', 'hls');
+                args.push('-allowed_extensions', 'ALL', '-protocol_whitelist', 'file,http,https,tcp,tls,crypto,subfile,data', '-probesize', '3M', '-f', 'hls');
             } else if (type === 'dash') {
-                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '3M', '-dash_allow_hier_sidx', '1');
+                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto,subfile,data', '-probesize', '3M', '-dash_allow_hier_sidx', '1');
             }
             
             // Add input, timestamp, and output options
-            args.push('-i', url, '-ss', timestamp, '-vframes', '1', '-vf', 'scale=120:-2', '-q:v', '2', previewPath);
+            args.push('-i', url, '-ss', timestamp, '-vf', 'scale=120:-2', '-q:v', '2', '-nostdin', '-f', 'image2', '-frames:v', '1', '-update', '1', '-y', previewPath);
             
             logDebug('🎬 FFmpeg preview command:', ffmpegPath, args.join(' '));
             
