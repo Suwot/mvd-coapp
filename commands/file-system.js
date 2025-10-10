@@ -111,12 +111,12 @@ class FileSystemCommand extends BaseCommand {
 
     /**
      * Show directory chooser dialog
-     * @param {Object} params - { title?: string }
+     * @param {Object} params - { title?: string, defaultPath?: string }
      */
     async chooseDirectory(params) {
-        const { title = 'Choose Directory' } = params;
+        const { title = 'Choose Directory', defaultPath } = params;
 
-        const command = this.getChooseDirectoryCommand(title);
+        const command = this.getChooseDirectoryCommand(title, defaultPath);
         const output = await this.executeCommand(command.cmd, command.args, true);
 
         // Parse output to get selected path
@@ -196,16 +196,23 @@ class FileSystemCommand extends BaseCommand {
     /**
      * Get platform-specific command for directory chooser dialog
      */
-    getChooseDirectoryCommand(title) {
+    getChooseDirectoryCommand(title, defaultPath) {
         if (process.platform === 'darwin') {
-            const script = `set chosenFolder to choose folder with prompt "${title}"
+            let script = `set chosenFolder to choose folder with prompt "${title}"`;
+            if (defaultPath && fs.existsSync(defaultPath)) {
+                script += ` default location "${defaultPath}"`;
+            }
+            script += `
 return POSIX path of chosenFolder`;
             return { cmd: 'osascript', args: ['-e', script] };
         } else if (process.platform === 'win32') {
-            const script = `Add-Type -AssemblyName System.Windows.Forms; 
+            let script = `Add-Type -AssemblyName System.Windows.Forms; 
                 $browser = New-Object System.Windows.Forms.FolderBrowserDialog; 
-                $browser.Description = '${title}'; 
-                $browser.RootFolder = 'MyComputer'; 
+                $browser.Description = '${title}';`;
+            if (defaultPath && fs.existsSync(defaultPath)) {
+                script += ` $browser.SelectedPath = '${defaultPath}';`;
+            }
+            script += ` $browser.RootFolder = 'MyComputer'; 
                 if($browser.ShowDialog() -eq 'OK') { $browser.SelectedPath }`;
             return { cmd: 'powershell', args: ['-Command', script] };
         } else {
