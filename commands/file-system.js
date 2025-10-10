@@ -127,14 +127,8 @@ class FileSystemCommand extends BaseCommand {
             throw new Error('No directory selected');
         }
 
-        // Check write permissions
-        try {
-            await fs.promises.access(selectedPath, fs.constants.W_OK);
-        } catch {
-            const error = new Error('Selected directory is not writable. Please choose a different location.');
-            error.key = 'directoryNotWritable';
-            throw error;
-        }
+        // Check write permissions with actual file creation test
+        await this.testWritePermissions(selectedPath);
 
         const result = { success: true, operation: 'chooseDirectory', selectedPath };
         this.sendMessage(result);
@@ -165,14 +159,8 @@ class FileSystemCommand extends BaseCommand {
         const directory = path.dirname(selectedPath);
         const filename = path.basename(selectedPath);
 
-        // Check write permissions on the directory
-        try {
-            await fs.promises.access(directory, fs.constants.W_OK);
-        } catch {
-            const error = new Error('Selected directory is not writable. Please choose a different location.');
-            error.key = 'directoryNotWritable';
-            throw error;
-        }
+        // Check write permissions on the directory with actual file creation test
+        await this.testWritePermissions(directory);
 
         const result = {
             success: true,
@@ -366,6 +354,25 @@ return POSIX path of chosenFile`;
         }
 
         return trimmedOutput;
+    }
+
+    /**
+     * Test write permissions by actually trying to create and delete a test file
+     * @param {string} directoryPath - Directory to test
+     */
+    async testWritePermissions(directoryPath) {
+        const testFile = path.join(directoryPath, 'maxvd_test_write.tmp');
+        
+        try {
+            // Try to create a test file
+            await fs.promises.writeFile(testFile, 'test');
+            // Try to delete it
+            await fs.promises.unlink(testFile);
+        } catch (error) {
+            const userError = new Error('Selected directory is not writable. Please choose a different location.');
+            userError.key = 'directoryNotWritable';
+            throw userError;
+        }
     }
 }
 
