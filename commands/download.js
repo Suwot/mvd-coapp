@@ -53,22 +53,21 @@ class DownloadCommand extends BaseCommand {
             lastProgressPercent: 0,
             errorLines: [],
 			finalProcessedTime: null, // Final processed time from FFmpeg
-            finalStats: null
+            finalStats: null,
+            lastChunk: '' // Last stderr chunk for final stats parsing on close
         };
     }
 
     // Process FFmpeg stderr output for progress and error collection
     processFFmpegOutput(output, progressState) {
+        // Store the last stderr chunk for final stats parsing on close
+        progressState.lastChunk = output;
+        
         // Always collect potential error lines
         this.collectErrorLines(output, progressState);
         
         // Parse progress data and send updates
         this.parseAndSendProgress(output, progressState);
-        
-        // Parse final stats if this is the end
-        if (output.includes('progress=end')) {
-            this.parseFinalStats(output, progressState);
-        }
     }
 
     // Collect error lines for later use (only attached to message on exitCode !== 0)
@@ -272,14 +271,14 @@ class DownloadCommand extends BaseCommand {
             stats.otherSize = parseInt(streamMatch[4], 10) * 1024; // Convert KB to bytes
         }
         
-        // Parse total size: total_size=7694941
-        const totalSizeMatch = output.match(/total_size=(\d+)/);
+        // Parse total size: total_size=7694941 (last occurrence)
+        const totalSizeMatch = output.match(/total_size=(\d+)(?!.*total_size)/s);
         if (totalSizeMatch) {
             stats.totalSize = parseInt(totalSizeMatch[1], 10);
         }
         
-        // Parse final bitrate: bitrate=  95.0kbits/s (keep as kbps, round to integer)
-        const bitrateMatch = output.match(/bitrate=\s*([\d.]+)kbits\/s/);
+        // Parse final bitrate: bitrate=  95.0kbits/s (last occurrence, keep as kbps, round to integer)
+        const bitrateMatch = output.match(/bitrate=\s*([\d.]+)kbits\/s(?!.*bitrate)/s);
         if (bitrateMatch) {
             stats.bitrateKbps = Math.round(parseFloat(bitrateMatch[1]));
         }
@@ -329,25 +328,35 @@ class DownloadCommand extends BaseCommand {
             if (process && process.pid && !process.killed) {
                 logDebug('Terminating FFmpeg process with PID:', process.pid);
                 
-                // Send SIGTERM for graceful termination (FFmpeg handles this properly)
-                try {
-                    process.kill('SIGTERM');
-                    logDebug('Sent SIGTERM to FFmpeg for graceful termination');
-                } catch (termError) {
-                    logDebug('Could not send SIGTERM:', termError.message);
+                // Try sending 'q' to stdin for graceful termination first
+                if (process.stdin && !process.stdin.destroyed) {
+                    try {
+                        process.stdin.write('q\n');
+                        logDebug('Sent q to FFmpeg stdin for graceful termination');
+                    } catch (stdinError) {
+                        logDebug('Could not write to stdin:', stdinError.message);
+                    }
+                } else {
+                    // Fallback to SIGTERM if stdin not available
+                    try {
+                        process.kill('SIGTERM');
+                        logDebug('Sent SIGTERM to FFmpeg for graceful termination');
+                    } catch (termError) {
+                        logDebug('Could not send SIGTERM:', termError.message);
+                    }
                 }
                 
-                // Force kill with SIGKILL after shorter delay for faster cancellation
+                // Force kill with SIGKILL after delay if still running
                 setTimeout(() => {
                     if (process && process.pid && !process.killed) {
-                        logDebug('FFmpeg still running after SIGTERM, sending SIGKILL');
+                        logDebug('FFmpeg still running after graceful termination, sending SIGKILL');
                         try {
                             process.kill('SIGKILL'); // Use SIGKILL for immediate termination
                         } catch (killError) {
                             logDebug('Error sending SIGKILL:', killError.message);
                         }
                     }
-                }, 6000); // Reduced from 8000ms to 2000ms for faster response
+                }, 6000); // Wait longer since 'q' might take time to finish
             }            
         } catch (error) {
             logDebug('Error during download cancellation:', error);
@@ -1102,6 +1111,12 @@ class DownloadCommand extends BaseCommand {
                 
                 logDebug(`FFmpeg process (PID: ${downloadEntry?.process?.pid}) terminated after ${downloadDuration}s:`, 
                     { code, signal, completed, wasKilled, isGracefulCancel, wasCanceled, fileExists, fileSize, bigEnough, type });
+                
+                // Try to parse final stats from last stderr chunk if not already done
+                if (!progressState.finalStats || Object.keys(progressState.finalStats).length === 0) {
+                    logDebug('Final stats not parsed yet, attempting to parse from last stderr chunk on exit');
+                    this.parseFinalStats(progressState.lastChunk, progressState);
+                }
                 
                 // Enhanced downloadStats
                     const rawDuration = progressState.finalProcessedTime || progressState.duration || null;
