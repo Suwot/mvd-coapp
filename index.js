@@ -266,7 +266,7 @@ async function processMessage(request, messagingService) {
     const commandType = request.command;
     
     // Track long-running operations
-    const isLongRunningOperation = ['download', 'getQualities', 'generatePreview'].includes(commandType);
+    const isLongRunningOperation = ['download', 'getQualities', 'generatePreview', 'fileSystem'].includes(commandType);
     
     if (isLongRunningOperation) {
         incrementOperations();
