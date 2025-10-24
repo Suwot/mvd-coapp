@@ -7,7 +7,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug, getFullEnv, getFFmpegPaths } = require('../utils/utils');
+const { logDebug, getFullEnv, getFFmpegPaths, TEMP_DIR } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
 class GeneratePreviewCommand extends BaseCommand {
@@ -27,7 +27,7 @@ class GeneratePreviewCommand extends BaseCommand {
         
         try {
             const { ffmpegPath } = getFFmpegPaths();
-            const previewPath = path.join(os.homedir(), '.cache', `video-preview-${Date.now()}.jpg`);
+            const previewPath = path.join(TEMP_DIR, `video-preview-${Date.now()}.jpg`);
             
             // Calculate timestamp (10% into video, 1-5s range)
             let timestamp = '00:00:01';

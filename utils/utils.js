@@ -12,57 +12,18 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// Determine log file path with platform-specific defaults and fallbacks
-function getLogFilePath() {
-    // Check for explicit overrides
-    if (process.env.MVD_LOG_FILE) {
-        return process.env.MVD_LOG_FILE;
-    }
-    
-    let baseDir;
-    const platform = process.platform;
-    
-    if (platform === 'win32') {
-        // Windows: Use ProgramData for system-wide logging (same structure as Program Files)
-        const programData = process.env.PROGRAMDATA || 'C:\\ProgramData';
-        baseDir = path.join(programData, 'MAX Video Downloader CoApp');
-    } else if (platform === 'darwin') {
-        // macOS: ~/Library/Logs/MAX Video Downloader CoApp
-        baseDir = path.join(os.homedir(), 'Library', 'Logs', 'MAX Video Downloader CoApp');
-    } else {
-        // Linux/Unix: $XDG_STATE_HOME/mvd-coapp (fallback ~/.local/state/mvd-coapp)
-        const xdgStateHome = process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state');
-        baseDir = path.join(xdgStateHome, 'mvd-coapp');
-    }
-    
-    // Check for directory override
-    if (process.env.MVD_LOG_DIR) {
-        baseDir = process.env.MVD_LOG_DIR;
-    }
-    
-    // Try to create the directory (always attempt for Windows ProgramData)
-    try {
-        if (!fs.existsSync(baseDir)) {
-            fs.mkdirSync(baseDir, { recursive: true });
-        }
-    } catch (err) {
-        // Fallback to temp directory
-        const fallbackDir = path.join(os.tmpdir(), 'mvd-coapp');
-        try {
-            if (!fs.existsSync(fallbackDir)) {
-                fs.mkdirSync(fallbackDir, { recursive: true });
-            }
-            baseDir = fallbackDir;
-        } catch (fallbackErr) {
-            // Last resort: just use temp dir directly
-            baseDir = os.tmpdir();
-        }
-    }
-    
-    return path.join(baseDir, 'mvdcoapp.log');
-}
+// Core directories - simple and universal across all OSes
+const TEMP_DIR = path.join(os.tmpdir(), 'mvdcoapp');
+const LOG_FILE = path.join(TEMP_DIR, 'mvdcoapp.log');
 
-const LOG_FILE = getLogFilePath();
+// Ensure temp directory exists
+try {
+    if (!fs.existsSync(TEMP_DIR)) {
+        fs.mkdirSync(TEMP_DIR, { recursive: true });
+    }
+} catch (err) {
+    // If directory creation fails, continue with fallback behavior
+}
 
 function logDebug(...args) {
     try {
@@ -150,6 +111,7 @@ function getFullEnv() {
 module.exports = {
     logDebug,
     LOG_FILE,
+    TEMP_DIR,
     getFFmpegPaths,
     getFullEnv
 };

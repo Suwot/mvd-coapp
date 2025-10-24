@@ -11,7 +11,7 @@
 
 // Import core modules
 const MessagingService = require('./lib/messaging');
-const { logDebug } = require('./utils/utils');
+const { logDebug, TEMP_DIR } = require('./utils/utils');
 
 // Platform detection - explicit support for known platforms only
 const PLATFORM = process.platform;
@@ -218,6 +218,7 @@ async function bootstrap() {
             platform: process.platform,
             pid: process.pid,
             lastValidation: Date.now(),
+            logsFolder: TEMP_DIR,
             capabilities: ['download', 'get-qualities', 'generate-preview', 'file-system', 'kill-processing']
         };
         messagingService.sendMessage(connectionInfo);
