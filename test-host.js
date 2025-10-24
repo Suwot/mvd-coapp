@@ -2,7 +2,6 @@
 
 // Simple test script for the CoApp
 const { spawn } = require('child_process');
-const path = require('path');
 const processManager = require('./lib/process-manager');
 
 // Create a process to run the host
@@ -11,10 +10,10 @@ const hostProcess = spawn('node', ['./index.js'], {
 });
 processManager.register(hostProcess);
 
-// Send a test connection validation message
+// Send a test quit message
 function sendTestMessage() {
   const message = { 
-    command: 'validateConnection',
+    command: 'quit',
     id: 'test_msg_1'
   };
   const messageBuffer = Buffer.from(JSON.stringify(message));

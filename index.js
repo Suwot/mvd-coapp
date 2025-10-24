@@ -134,8 +134,6 @@ if (hasCommand('uninstall')) {
 const DownloadCommand = require('./commands/download');
 const GetQualitiesCommand = require('./commands/get-qualities');
 const GeneratePreviewCommand = require('./commands/generate-preview');
-// TODO: Remove legacy validateConnection command on 20 October 2025 (after all extensions are updated to use startup event)
-const ValidateConnectionCommand = require('./commands/validate-connection');
 const FileSystemCommand = require('./commands/file-system');
 const processManager = require('./lib/process-manager');
 
@@ -240,8 +238,6 @@ const commands = {
     'cancel-download': DownloadCommand,
     'getQualities': GetQualitiesCommand,
     'generatePreview': GeneratePreviewCommand,
-    // TODO: Remove legacy validateConnection command on 20 October 2025 (after all extensions are updated to use startup event)
-    'validateConnection': ValidateConnectionCommand,
     'fileSystem': FileSystemCommand,
     'kill-processing': {
         execute: async (params, requestId, messagingService) => {

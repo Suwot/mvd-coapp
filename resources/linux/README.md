@@ -48,4 +48,4 @@ Firefox support coming soon.
 ## Links
 
 - [Source Code](https://github.com/Suwot/mvd-coapp)
-- [Website](https://www.maxvideodownloader.pro/?utm_source=readme&utm_medium=linux)
+- [Website](https://www.maxvideodownloader.pro/?utm_source=linux-tar&utm_medium=readme)
