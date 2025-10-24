@@ -8,7 +8,7 @@
  */
 
 const BaseCommand = require('./base-command');
-const { logDebug } = require('../utils/utils');
+const { logDebug, LOG_FILE } = require('../utils/utils');
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -371,7 +371,16 @@ return POSIX path of chosenFile`;
             // Delete the file
             fs.unlinkSync(filePath);
             
-            const result = { success: true, operation: 'deleteFile', filePath };
+            // Check if this was the logs file and return updated size
+            const isLogsFile = filePath === LOG_FILE;
+            const newSize = isLogsFile ? (fs.existsSync(LOG_FILE) ? fs.statSync(LOG_FILE).size : 0) : undefined;
+            
+            const result = { 
+                success: true, 
+                operation: 'deleteFile', 
+                filePath,
+                ...(isLogsFile && { logFileSize: newSize })
+            };
             this.sendMessage(result);
             return result;
         } catch (error) {

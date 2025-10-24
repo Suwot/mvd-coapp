@@ -11,7 +11,7 @@
 
 // Import core modules
 const MessagingService = require('./lib/messaging');
-const { logDebug, TEMP_DIR } = require('./utils/utils');
+const { logDebug, TEMP_DIR, LOG_FILE } = require('./utils/utils');
 
 // Platform detection - explicit support for known platforms only
 const PLATFORM = process.platform;
@@ -205,6 +205,17 @@ async function bootstrap() {
                 return '0.0.0';
             }
         })();
+        // Get log file size (synchronous, fast operation)
+        let logFileSize = 0;
+        try {
+            const fs = require('fs');
+            if (fs.existsSync(LOG_FILE)) {
+                logFileSize = fs.statSync(LOG_FILE).size;
+            }
+        } catch (err) {
+            // If we can't get file size, keep it as 0
+        }
+        
         const connectionInfo = {
             command: 'validateConnection',
             alive: true,
@@ -217,6 +228,8 @@ async function bootstrap() {
             pid: process.pid,
             lastValidation: Date.now(),
             logsFolder: TEMP_DIR,
+            logFile: LOG_FILE,
+            logFileSize: logFileSize,
             capabilities: ['download', 'get-qualities', 'generate-preview', 'file-system', 'kill-processing']
         };
         messagingService.sendMessage(connectionInfo);
