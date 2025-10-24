@@ -1,6 +1,6 @@
 {
   "name": "mvdcoapp",
-  "version": "0.7.16",
+  "version": "0.7.17",
   "description": "MAX Video Downloader CoApp",
   "main": "index.js",
   "type": "commonjs",

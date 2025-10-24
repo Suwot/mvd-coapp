@@ -11,10 +11,11 @@ Install the browser extension first:
 
 ## Installation
 
-### Option 1: Manual
-1. Extract this archive to any directory (e.g., `~/mvdcoapp`)
-2. Run `./mvdcoapp -install` to register with your browsers
-3. Done! The extension will connect automatically
+### Option 1: Manual (you are here)
+1. Extract this archive to any directory, accessible by your Browser (e.g., `~/.local/share/mvdcoapp`)
+2. Double-click `mvdcoapp` to register with your browsers (shows GUI dialog with install/uninstall options)
+3. Or run `./mvdcoapp -install` from terminal for command-line installation
+4. Done! The extension will connect automatically to installed browsers
 
 ### Option 2: Auto-Install
 Run this command in your terminal for automatic setup:
@@ -27,9 +28,10 @@ This will download the latest version, install it to `~/.local/share/mvdcoapp`, 
 
 ## Commands
 
-- `./mvdcoapp -install` - Register with browsers
+- `./mvdcoapp` or `./mvdcoapp -install` - Register with browsers (GUI dialog)
 - `./mvdcoapp -uninstall` - Remove from browsers
 - `./mvdcoapp -version` - Show version info
+- `./mvdcoapp -help` - Show usage help and available commands
 
 ## Browser Support
 
@@ -41,8 +43,9 @@ Firefox support coming soon.
 - **Permission denied**: Run `chmod +x mvdcoapp` to make executable
 - **Browser not detected**: Restart browser after installation
 - **Flatpak Firefox**: May need additional setup due to sandboxing
+- **Snap browsers**: not supported due to sandboxing
 
 ## Links
 
 - [Source Code](https://github.com/Suwot/mvd-coapp)
-- [Website](https://www.maxvideodownloader.pro/)
+- [Website](https://www.maxvideodownloader.pro/?utm_source=readme&utm_medium=linux)
