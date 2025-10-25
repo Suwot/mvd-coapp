@@ -8,25 +8,11 @@
  */
 
 const BaseCommand = require('./base-command');
-const { logDebug, LOG_FILE } = require('../utils/utils');
-const { spawn, spawnSync } = require('child_process');
+const { logDebug, LOG_FILE, getLinuxDialogCommand } = require('../utils/utils');
+const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const processManager = require('../lib/process-manager');
-
-/**
- * Check if zenity is available on Linux systems
- * @returns {boolean} True if zenity is available
- */
-function isZenityAvailable() {
-    if (process.platform !== 'linux') return false;
-    try {
-        const { status } = spawnSync('which', ['zenity'], { stdio: 'ignore' });
-        if (status === 0) return true;
-    } catch {} // eslint-disable-line no-empty
-    return ['/usr/bin/zenity', '/usr/local/bin/zenity', '/bin/zenity']
-        .some(p => fs.existsSync(p));
-}
 
 /**
  * Command for handling all file system operations
@@ -244,19 +230,7 @@ if ($browser.ShowDialog() -eq 'OK') { $browser.SelectedPath }
 `;
             return { cmd: 'powershell', args: ['-NoProfile','-STA','-Command', script] };
         } else if (process.platform === 'linux') {
-            // Check if zenity is available
-            if (!isZenityAvailable()) {
-                const error = new Error('File dialog not available on this system/environment');
-                error.key = 'noDialogTool';
-                throw error;
-            }
-
-            // Use zenity for Linux directory selection
-            const args = ['--file-selection', '--directory', '--title', title];
-            if (defaultPath && fs.existsSync(defaultPath)) {
-                args.push('--filename', defaultPath);
-            }
-            return { cmd: 'zenity', args };
+            return getLinuxDialogCommand('directory', title, defaultPath);
         } else {
             throw new Error('Unsupported platform');
         }
@@ -289,21 +263,7 @@ return POSIX path of chosenFile`;
             script += ` if($saveDialog.ShowDialog() -eq 'OK') { $saveDialog.FileName }`;
             return { cmd: 'powershell', args: ['-NoProfile','-STA','-Command', script] };
         } else if (process.platform === 'linux') {
-            // Check if zenity is available
-            if (!isZenityAvailable()) {
-                const error = new Error('File dialog not available on this system/environment');
-                error.key = 'noDialogTool';
-                throw error;
-            }
-
-            // Use zenity for Linux file save dialog
-            const args = ['--file-selection', '--save', '--title', title];
-            if (defaultPath && fs.existsSync(defaultPath)) {
-                args.push('--filename', path.join(defaultPath, defaultName));
-            } else {
-                args.push('--filename', defaultName);
-            }
-            return { cmd: 'zenity', args };
+            return getLinuxDialogCommand('save', title, defaultPath, defaultName);
         } else {
             throw new Error('Unsupported platform');
         }
