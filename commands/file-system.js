@@ -222,11 +222,12 @@ class FileSystemCommand extends BaseCommand {
         } else if (process.platform === 'win32') {
             const escPS = s => String(s).replace(/'/g, "''");
             const script = `
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false);
 Add-Type -AssemblyName System.Windows.Forms;
 $browser = New-Object System.Windows.Forms.FolderBrowserDialog;
 $browser.Description = '${escPS(title)}';
-$browser.RootFolder = 'MyComputer';
-if ($browser.ShowDialog() -eq 'OK') { $browser.SelectedPath }
+$browser.RootFolder = [System.Environment+SpecialFolder]::MyComputer;
+if ($browser.ShowDialog() -eq 'OK') { [Console]::Write($browser.SelectedPath) }
 `;
             return { cmd: 'powershell', args: ['-NoProfile','-STA','-Command', script] };
         } else if (process.platform === 'linux') {
@@ -251,16 +252,17 @@ return POSIX path of chosenFile`;
             return { cmd: 'osascript', args: ['-e', script] };
         } else if (process.platform === 'win32') {
             const escPS = s => String(s).replace(/'/g, "''");
-            let script = `Add-Type -AssemblyName System.Windows.Forms; 
-                $saveDialog = New-Object System.Windows.Forms.SaveFileDialog; 
-                $saveDialog.Title = '${escPS(title)}'; 
-                $saveDialog.FileName = '${escPS(defaultName)}';`;
+            let script = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false);
+Add-Type -AssemblyName System.Windows.Forms; 
+$saveDialog = New-Object System.Windows.Forms.SaveFileDialog; 
+$saveDialog.Title = '${escPS(title)}'; 
+$saveDialog.FileName = '${escPS(defaultName)}';`;
             if (defaultPath && fs.existsSync(defaultPath)) {
                 script += ` $saveDialog.InitialDirectory = '${escPS(defaultPath)}';`;
             } else {
                 script += ` $downloadsPath = [Environment]::GetFolderPath('Downloads'); $saveDialog.InitialDirectory = $downloadsPath;`;
             }
-            script += ` if($saveDialog.ShowDialog() -eq 'OK') { $saveDialog.FileName }`;
+            script += ` if($saveDialog.ShowDialog() -eq 'OK') { [Console]::Write($saveDialog.FileName) }`;
             return { cmd: 'powershell', args: ['-NoProfile','-STA','-Command', script] };
         } else if (process.platform === 'linux') {
             return getLinuxDialogCommand('save', title, defaultPath, defaultName);
@@ -367,27 +369,21 @@ return POSIX path of chosenFile`;
      * Parse dialog output to extract selected path
      */
     parseDialogOutput(output, type) {
-        if (!output || output.trim() === '') {
-            return null;
-        }
-
-        const trimmedOutput = output.trim();
-
-        // Handle cases where dialog was cancelled (empty output)
-        if (trimmedOutput === '') {
-            return null;
-        }
-
-        return trimmedOutput;
+        if (!output) return null;
+        
+        // Strip UTF-8 BOM if present and trim whitespace
+        const clean = output.replace(/^\uFEFF/, '').trim();
+        return clean || null;
     }
 
     /**
      * Test write permissions by actually trying to create and delete a test file
+     * Uses ASCII-only filename for cross-platform compatibility
      * @param {string} directoryPath - Directory to test
      */
     async testWritePermissions(directoryPath) {
-        const uniqueId = require('crypto').randomUUID();
-        const testFile = path.join(directoryPath, `maxvd_test_write_${uniqueId}.tmp`);
+        // Use simple ASCII filename to avoid encoding issues across platforms
+        const testFile = path.join(directoryPath, 'maxvd_test.tmp');
         
         try {
             // Try to create a test file
@@ -395,8 +391,16 @@ return POSIX path of chosenFile`;
             // Try to delete it
             await fs.promises.unlink(testFile);
         } catch (error) {
-            const userError = new Error('Selected directory is not writable. Please choose a different location.');
-            userError.key = 'directoryNotWritable';
+            // Provide detailed error info for debugging encoding vs permission issues
+            const errorDetails = [directoryPath];
+            if (error.code) errorDetails.push(error.code);
+            if (error.syscall) errorDetails.push(error.syscall);
+            if (error.path) errorDetails.push(error.path);
+            
+            const userError = new Error(`Cannot write to selected directory: ${errorDetails.join(' ')}`);
+            userError.key = (error.code === 'EACCES' || error.code === 'EPERM') 
+                ? 'directoryNotWritable' 
+                : (error.code === 'ENOENT' ? 'directoryNotFound' : 'directoryWriteError');
             throw userError;
         }
     }
