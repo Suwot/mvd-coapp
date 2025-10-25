@@ -201,6 +201,53 @@ function getLinuxDialogCommand(type, title, defaultPath, defaultName) {
     return { cmd: tool, args };
 }
 
+/**
+ * Get Linux modal dialog command for info/question dialogs
+ * @param {string} type - 'info' or 'question'
+ * @param {string} text - Dialog text content
+ * @param {string} title - Dialog title
+ * @returns {Object} Command object with cmd and args
+ */
+function getLinuxModalCommand(type, text, title) {
+    const tool = detectDialogTool();
+    if (!tool) {
+        return null; // No GUI tool available, will fall back to console
+    }
+
+    const args = (() => {
+        switch (tool) {
+            case 'zenity':
+                if (type === 'info') {
+                    return ['--info', '--text=' + text, '--title=' + title, '--width=350'];
+                } else { // question
+                    return ['--question', '--text=' + text, '--title=' + title, '--ok-label=OK', '--cancel-label=Uninstall', '--width=350'];
+                }
+            case 'kdialog':
+                if (type === 'info') {
+                    return ['--msgbox', text, '--title', title];
+                } else { // question
+                    return ['--yesno', text, '--title', title, '--yes-label', 'OK', '--no-label', 'Uninstall'];
+                }
+            case 'yad':
+                if (type === 'info') {
+                    return ['--info', '--text=' + text, '--title=' + title, '--button=OK:0', '--width=350'];
+                } else { // question
+                    return ['--question', '--text=' + text, '--title=' + title, '--button=Uninstall:1', '--button=OK:0', '--width=350'];
+                }
+            case 'qarma':
+                if (type === 'info') {
+                    return ['--messagebox', '--text=' + text, '--title=' + title, '--width=350'];
+                } else { // question
+                    return ['--messagebox', '--text=' + text, '--title=' + title, '--button=Uninstall:1', '--button=OK:0', '--width=350'];
+                }
+            default:
+                return null;
+        }
+    })();
+
+    return { cmd: tool, args };
+}
+
 module.exports = {
     logDebug,
     LOG_FILE,
@@ -208,5 +255,6 @@ module.exports = {
     getFFmpegPaths,
     getFullEnv,
     detectDialogTool,
-    getLinuxDialogCommand
+    getLinuxDialogCommand,
+    getLinuxModalCommand
 };
