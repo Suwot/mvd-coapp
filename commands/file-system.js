@@ -438,7 +438,7 @@ return POSIX path of chosenFile`;
             const userError = new Error(`Cannot write to selected directory: ${errorDetails.join(' ')}`);
             userError.key = (error.code === 'EACCES' || error.code === 'EPERM') 
                 ? 'directoryNotWritable' 
-                : (error.code === 'ENOENT' ? 'directoryNotFound' : 'directoryWriteError');
+                : (error.code === 'ENOENT' ? 'folderNotFound' : 'directoryWriteError');
             throw userError;
         }
     }
