@@ -74,16 +74,17 @@ function logDebug(...args) {
 }
 
 /**
- * Get FFmpeg and FFprobe paths (co-located with executable)
+ * Get binary paths (co-located with executable)
  */
-function getFFmpegPaths() {
+function getBinaryPaths() {
     const dir = typeof process.pkg !== 'undefined' 
         ? path.dirname(process.execPath)
         : path.dirname(__dirname);
     const ext = process.platform === 'win32' ? '.exe' : '';
     return {
         ffmpegPath: path.join(dir, `ffmpeg${ext}`),
-        ffprobePath: path.join(dir, `ffprobe${ext}`)
+        ffprobePath: path.join(dir, `ffprobe${ext}`),
+        fileuiPath: process.platform === 'win32' ? path.join(dir, `mvd-fileui${ext}`) : null
     };
 }
 
@@ -252,7 +253,7 @@ module.exports = {
     logDebug,
     LOG_FILE,
     TEMP_DIR,
-    getFFmpegPaths,
+    getBinaryPaths,
     getFullEnv,
     detectDialogTool,
     getLinuxDialogCommand,

@@ -8,7 +8,7 @@
  */
 
 const BaseCommand = require('./base-command');
-const { logDebug, LOG_FILE, getLinuxDialogCommand } = require('../utils/utils');
+const { logDebug, LOG_FILE, getLinuxDialogCommand, getBinaryPaths } = require('../utils/utils');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -46,7 +46,7 @@ class FileSystemCommand extends BaseCommand {
                     throw new Error(`Unknown file system operation: ${operation}`);
             }
         } catch (error) {
-            logDebug(`FileSystem operation failed: ${operation}`, error);
+            logDebug(`FileSystem operation failed: ${operation}`, error.message || String(error));
             const errorResponse = { error: error.message, key: error.key || null };
             this.sendMessage(errorResponse);
             return errorResponse;
@@ -220,16 +220,17 @@ class FileSystemCommand extends BaseCommand {
             script += `\nreturn POSIX path of chosenFolder`;
             return { cmd: 'osascript', args: ['-e', script] };
         } else if (process.platform === 'win32') {
-            const escPS = s => String(s).replace(/'/g, "''");
-            const script = `
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false);
-Add-Type -AssemblyName System.Windows.Forms;
-$browser = New-Object System.Windows.Forms.FolderBrowserDialog;
-$browser.Description = '${escPS(title)}';
-$browser.RootFolder = [System.Environment+SpecialFolder]::MyComputer;
-if ($browser.ShowDialog() -eq 'OK') { [Console]::Write($browser.SelectedPath) }
-`;
-            return { cmd: 'powershell', args: ['-NoProfile','-STA','-Command', script] };
+            // Use C++ helper for better performance and Unicode support
+            const { fileuiPath } = getBinaryPaths();
+            if (!fileuiPath || !fs.existsSync(fileuiPath)) {
+                throw new Error('C++ file dialog helper not found. Please reinstall the application.');
+            }
+            logDebug('Using C++ folder picker helper');
+            const args = ['--mode', 'pick-folder', '--title', title || 'Choose Folder'];
+            if (defaultPath && fs.existsSync(defaultPath)) {
+                args.push('--initial', defaultPath);
+            }
+            return { cmd: fileuiPath, args };
         } else if (process.platform === 'linux') {
             return getLinuxDialogCommand('directory', title, defaultPath);
         } else {
@@ -251,19 +252,23 @@ if ($browser.ShowDialog() -eq 'OK') { [Console]::Write($browser.SelectedPath) }
 return POSIX path of chosenFile`;
             return { cmd: 'osascript', args: ['-e', script] };
         } else if (process.platform === 'win32') {
-            const escPS = s => String(s).replace(/'/g, "''");
-            let script = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false);
-Add-Type -AssemblyName System.Windows.Forms; 
-$saveDialog = New-Object System.Windows.Forms.SaveFileDialog; 
-$saveDialog.Title = '${escPS(title)}'; 
-$saveDialog.FileName = '${escPS(defaultName)}';`;
-            if (defaultPath && fs.existsSync(defaultPath)) {
-                script += ` $saveDialog.InitialDirectory = '${escPS(defaultPath)}';`;
-            } else {
-                script += ` $downloadsPath = [Environment]::GetFolderPath('Downloads'); $saveDialog.InitialDirectory = $downloadsPath;`;
+            // Use C++ helper for better performance and Unicode support
+            const { fileuiPath } = getBinaryPaths();
+            if (!fileuiPath || !fs.existsSync(fileuiPath)) {
+                throw new Error('C++ file dialog helper not found. Please reinstall the application.');
             }
-            script += ` if($saveDialog.ShowDialog() -eq 'OK') { [Console]::Write($saveDialog.FileName) }`;
-            return { cmd: 'powershell', args: ['-NoProfile','-STA','-Command', script] };
+            logDebug('Using C++ save file dialog helper');
+            const args = ['--mode', 'save-file', '--title', title || 'Save As', '--name', defaultName];
+            if (defaultPath && fs.existsSync(defaultPath)) {
+                args.push('--initial', defaultPath);
+            } else {
+                // Use Downloads folder as default if no path specified
+                const downloadsPath = path.join(require('os').homedir(), 'Downloads');
+                if (fs.existsSync(downloadsPath)) {
+                    args.push('--initial', downloadsPath);
+                }
+            }
+            return { cmd: fileuiPath, args };
         } else if (process.platform === 'linux') {
             return getLinuxDialogCommand('save', title, defaultPath, defaultName);
         } else {
@@ -300,10 +305,26 @@ $saveDialog.FileName = '${escPS(defaultName)}';`;
             });
 
             childProcess.on('close', (code) => {
-                if (code === 0) {
-                    resolve(captureOutput ? output.trim() : null);
+                if (captureOutput) {
+                    // Operations that capture output (dialogs) need valid exit codes
+                    if (code === 0) {
+                        resolve(output.trim());
+                    } else {
+                        // Map exit codes to meaningful error messages for dialogs
+                        let errorMsg = errorOutput || '';
+                        if (code === 1) {
+                            if (errorMsg.trim() === '') {
+                                errorMsg = 'Dialog cancelled or failed';
+                            }
+                        } else {
+                            errorMsg = `Command failed with code ${code}: ${errorMsg}`;
+                        }
+                        reject(new Error(errorMsg));
+                    }
                 } else {
-                    reject(new Error(`Command failed with code ${code}: ${errorOutput}`));
+                    // Fire-and-forget operations (GUI actions) - spawn success = operation success
+                    // Ignore exit codes for GUI apps, only spawn errors matter
+                    resolve(null);
                 }
             });
 

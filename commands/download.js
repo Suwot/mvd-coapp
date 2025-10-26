@@ -16,7 +16,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug, getFullEnv, getFFmpegPaths } = require('../utils/utils');
+const { logDebug, getFullEnv, getBinaryPaths } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
 // Command for downloading videos
@@ -434,7 +434,7 @@ class DownloadCommand extends BaseCommand {
         
         try {
             // Get required services
-            const { ffmpegPath } = getFFmpegPaths();
+            const { ffmpegPath } = getBinaryPaths();
             
             // Use container from extension (trusted completely)
             logDebug('📦 Using container from extension:', container);
@@ -926,7 +926,7 @@ class DownloadCommand extends BaseCommand {
             }
             
             // Get path to ffprobe
-            const { ffprobePath } = getFFmpegPaths();
+            const { ffprobePath } = getBinaryPaths();
             
             logDebug('Using FFprobe path:', ffprobePath);
             

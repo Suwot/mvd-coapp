@@ -145,6 +145,18 @@ Section -MainProgram
 			Abort
 		${EndIf}
 	${EndIf}
+	
+	ClearErrors
+	File "mvd-fileui.exe"
+	${If} ${Errors}
+		Delete /REBOOTOK "$INSTDIR\mvd-fileui.exe"
+		ClearErrors
+		File "mvd-fileui.exe"
+		${If} ${Errors}
+			MessageBox MB_OK|MB_ICONSTOP "Failed to install mvd-fileui.exe. Please close all browsers and try again."
+			Abort
+		${EndIf}
+	${EndIf}
 
 SectionEnd
 
@@ -273,6 +285,7 @@ Section Uninstall
 	Delete /REBOOTOK "$INSTDIR\mvdcoapp.exe"
 	Delete /REBOOTOK "$INSTDIR\ffmpeg.exe"
 	Delete /REBOOTOK "$INSTDIR\ffprobe.exe"
+	Delete /REBOOTOK "$INSTDIR\mvd-fileui.exe"
 	Delete "$INSTDIR\chromium-manifest.json"
 	Delete "$INSTDIR\mozilla-manifest.json"
 	Delete "$INSTDIR\uninstall.exe"

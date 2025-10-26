@@ -10,7 +10,7 @@
 
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug, getFullEnv, getFFmpegPaths } = require('../utils/utils');
+const { logDebug, getFullEnv, getBinaryPaths } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
 /**
@@ -49,7 +49,7 @@ class GetQualitiesCommand extends BaseCommand {
         
         try {
             // Get FFmpeg directly
-            const { ffprobePath } = getFFmpegPaths();
+            const { ffprobePath } = getBinaryPaths();
             
             return new Promise((resolve, reject) => {
                 // Build FFprobe args

@@ -63,6 +63,51 @@ get_binary_name() {
 # BUILD FUNCTIONS
 # ============================================================================
 
+build_cpp_helper() {
+    local platform=$1
+    local build_dir=$2
+    local helper_project="tools/fileui"
+    local helper_exe="mvd-fileui.exe"
+
+    log_info "Building C++ file UI helper for $platform..."
+
+    # Check if MinGW-w64 is available
+    if ! command -v x86_64-w64-mingw32-g++ &> /dev/null; then
+        log_warn "MinGW-w64 not found. Skipping C++ helper build."
+        log_warn "Install with: brew install mingw-w64"
+        return 0
+    fi
+
+    # Check if source exists
+    if [[ ! -f "$helper_project/src/pick.cpp" ]]; then
+        log_warn "C++ helper source not found at $helper_project/src/pick.cpp. Skipping."
+        return 0
+    fi
+
+    # Store original directory
+    local original_dir=$(pwd)
+
+    # Create build directory if it doesn't exist
+    mkdir -p "$helper_project/build"
+
+    # Build the helper
+    cd "$helper_project"
+    if x86_64-w64-mingw32-g++ src/pick.cpp -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -o build/$helper_exe; then
+        # Copy the built executable to the build directory
+        if [[ -f "build/$helper_exe" ]]; then
+            cp "build/$helper_exe" "../../$build_dir/"
+            log_info "✓ C++ helper built and copied: $helper_exe"
+        else
+            log_warn "C++ helper executable not found after build"
+        fi
+    else
+        log_warn "C++ helper build failed. Continuing without helper."
+    fi
+
+    # Return to original directory
+    cd "$original_dir"
+}
+
 build_binary() {
     local platform=$1
     local pkg_target=$(get_pkg_target "$platform")
@@ -90,6 +135,18 @@ build_binary() {
         log_info "Copied FFmpeg binaries from $ffmpeg_source"
     else
         log_warn "FFmpeg binaries not found at $ffmpeg_source"
+    fi
+    
+    # Build C++ folder picker helper for Windows
+    if [[ "$platform" == win-x64 ]]; then
+        build_cpp_helper "$platform" "$build_dir"
+        # Also copy to bin directory for pkg bundling
+        local bin_dir="bin/$platform"
+        mkdir -p "$bin_dir"
+        if [[ -f "$build_dir/mvd-fileui.exe" ]]; then
+            cp "$build_dir/mvd-fileui.exe" "$bin_dir/"
+            log_info "Copied C++ helper to $bin_dir for bundling"
+        fi
     fi
     
     log_info "✓ Binary built: $build_dir/$binary_name (self-contained installer)"
@@ -229,6 +286,7 @@ create_windows_package() {
     cp "$build_dir"/mvdcoapp.exe "$nsis_dir/"
     cp "$build_dir"/ffmpeg.exe "$nsis_dir/"
     cp "$build_dir"/ffprobe.exe "$nsis_dir/"
+    cp "$build_dir"/mvd-fileui.exe "$nsis_dir/"
     
     # Copy required files for NSIS
     cp "resources/windows/installer.nsh" "$nsis_dir/"
