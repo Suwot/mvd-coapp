@@ -66,7 +66,9 @@ class FileSystemCommand extends BaseCommand {
 
         // Check if file exists
         if (!fs.existsSync(filePath)) {
-            throw new Error('File not found');
+            const error = new Error(`File doesn't exist: ${filePath}`);
+            error.key = 'fileNotFound';
+            throw error;
         }
 
         const command = this.getOpenFileCommand(filePath);
@@ -92,14 +94,18 @@ class FileSystemCommand extends BaseCommand {
             // Open folder without pointing to file (file is known to be deleted)
             const folderPath = path.dirname(filePath);
             if (!fs.existsSync(folderPath)) {
-                throw new Error('Folder not found');
+                const error = new Error(`Folder doesn't exist: ${folderPath}`);
+                error.key = 'folderNotFound';
+                throw error;
             }
             const command = this.getOpenFolderCommand(folderPath);
             await this.executeCommand(command.cmd, command.args);
         } else {
             // Normal operation - check if file exists and show in folder
             if (!fs.existsSync(filePath)) {
-                throw new Error('File not found');
+                const error = new Error(`File doesn't exist: ${filePath}`);
+                error.key = 'fileNotFound';
+                throw error;
             }
             const command = this.getShowInFolderCommand(filePath);
             await this.executeCommand(command.cmd, command.args);
@@ -124,7 +130,9 @@ class FileSystemCommand extends BaseCommand {
         const selectedPath = this.parseDialogOutput(output, 'directory');
 
         if (!selectedPath) {
-            throw new Error('No directory selected');
+            const error = new Error('No directory selected');
+            error.key = 'noDirectorySelected';
+            throw error;
         }
 
         // Check write permissions with actual file creation test
@@ -149,7 +157,9 @@ class FileSystemCommand extends BaseCommand {
         const selectedPath = this.parseDialogOutput(output, 'file');
 
         if (!selectedPath) {
-            throw new Error('No save location selected');
+            const error = new Error('No save location selected');
+            error.key = 'noSaveLocationSelected';
+            throw error;
         }
 
         // Check if user chose to overwrite an existing file
@@ -223,7 +233,9 @@ class FileSystemCommand extends BaseCommand {
             // Use C++ helper for better performance and Unicode support
             const { fileuiPath } = getBinaryPaths();
             if (!fileuiPath || !fs.existsSync(fileuiPath)) {
-                throw new Error('C++ file dialog helper not found. Please reinstall the application.');
+                const error = new Error('C++ file dialog helper not found. Please reinstall the application.');
+                error.key = 'fileDialogHelperNotFound';
+                throw error;
             }
             logDebug('Using C++ folder picker helper');
             const args = ['--mode', 'pick-folder', '--title', title || 'Choose Folder'];
@@ -255,7 +267,9 @@ return POSIX path of chosenFile`;
             // Use C++ helper for better performance and Unicode support
             const { fileuiPath } = getBinaryPaths();
             if (!fileuiPath || !fs.existsSync(fileuiPath)) {
-                throw new Error('C++ file dialog helper not found. Please reinstall the application.');
+                const error = new Error('C++ file dialog helper not found. Please reinstall the application.');
+                error.key = 'fileDialogHelperNotFound';
+                throw error;
             }
             logDebug('Using C++ save file dialog helper');
             const args = ['--mode', 'save-file', '--title', title || 'Save As', '--name', defaultName];
@@ -347,7 +361,9 @@ return POSIX path of chosenFile`;
 
         // Check if file exists
         if (!fs.existsSync(filePath)) {
-            throw new Error('File not found');
+            const error = new Error(`File doesn't exist: ${filePath}`);
+            error.key = 'fileNotFound';
+            throw error;
         }
 
         try {
@@ -362,6 +378,7 @@ return POSIX path of chosenFile`;
                 success: true, 
                 operation: 'deleteFile', 
                 filePath,
+                key: 'fileDeleted',
                 ...(isLogsFile && { logFileSize: newSize })
             };
             this.sendMessage(result);
