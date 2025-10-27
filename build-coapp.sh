@@ -244,12 +244,12 @@ EOF
         --volname "Max Video Downloader CoApp" \
         --volicon "resources/mac/AppIcon.icns" \
         --background "resources/mac/dmg-background.png" \
-        --window-pos 200 120 \
-        --window-size 750 560 \
-        --icon-size 100 \
-        --icon "${APP_NAME}.app" 185 290 \
-        --app-drop-link 565 290 \
-        --add-file "README.txt" "resources/mac/README.txt" 375 450 \
+        --window-pos 0 0 \
+        --window-size 934 457 \
+        --icon-size 120 \
+        --icon "${APP_NAME}.app" 160 288 \
+        --app-drop-link 478 288 \
+        --add-file "README.txt" "resources/mac/README.txt" 734 288 \
         --hide-extension "${APP_NAME}.app" \
         "$final_dmg" \
         "$app_dir"
