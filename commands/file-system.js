@@ -8,7 +8,8 @@
  */
 
 const BaseCommand = require('./base-command');
-const { logDebug, LOG_FILE, getLinuxDialogCommand, getBinaryPaths } = require('../utils/utils');
+const { logDebug, LOG_FILE, getBinaryPaths } = require('../utils/utils');
+const { getLinuxDialog } = require('../lib/linux-dialog');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -123,7 +124,7 @@ class FileSystemCommand extends BaseCommand {
     async chooseDirectory(params) {
         const { title = 'Choose Directory', defaultPath } = params;
 
-        const command = this.getChooseDirectoryCommand(title, defaultPath);
+        const command = await this.getChooseDirectoryCommand(title, defaultPath);
         const output = await this.executeCommand(command.cmd, command.args, true);
 
         // Parse output to get selected path
@@ -150,7 +151,7 @@ class FileSystemCommand extends BaseCommand {
     async chooseSaveLocation(params) {
         const { defaultName = 'untitled', title = 'Save As', defaultPath } = params;
 
-        const command = this.getChooseSaveLocationCommand(defaultName, title, defaultPath);
+        const command = await this.getChooseSaveLocationCommand(defaultName, title, defaultPath);
         const output = await this.executeCommand(command.cmd, command.args, true);
 
         // Parse output to get selected path
@@ -220,7 +221,7 @@ class FileSystemCommand extends BaseCommand {
     /**
      * Get platform-specific command for directory chooser dialog
      */
-    getChooseDirectoryCommand(title, defaultPath) {
+    async getChooseDirectoryCommand(title, defaultPath) {
         if (process.platform === 'darwin') {
             const escAS = s => String(s).replace(/"/g, '\\"');
             let script = `set chosenFolder to choose folder with prompt "${escAS(title)}"`;
@@ -244,7 +245,7 @@ class FileSystemCommand extends BaseCommand {
             }
             return { cmd: fileuiPath, args };
         } else if (process.platform === 'linux') {
-            return getLinuxDialogCommand('directory', title, defaultPath);
+            return await getLinuxDialog('directory', title, defaultPath);
         } else {
             throw new Error('Unsupported platform');
         }
@@ -253,7 +254,7 @@ class FileSystemCommand extends BaseCommand {
     /**
      * Get platform-specific command for save file dialog
      */
-    getChooseSaveLocationCommand(defaultName, title, defaultPath) {
+    async getChooseSaveLocationCommand(defaultName, title, defaultPath) {
         if (process.platform === 'darwin') {
             const escAS = s => String(s).replace(/"/g, '\\"');
             let script = `set chosenFile to choose file name with prompt "${escAS(title)}" default name "${escAS(defaultName)}"`;
@@ -284,7 +285,7 @@ return POSIX path of chosenFile`;
             }
             return { cmd: fileuiPath, args };
         } else if (process.platform === 'linux') {
-            return getLinuxDialogCommand('save', title, defaultPath, defaultName);
+            return await getLinuxDialog('save', title, defaultPath, defaultName);
         } else {
             throw new Error('Unsupported platform');
         }
