@@ -3,8 +3,8 @@ ManifestDPIAware true
 ######################################################################
 
 # System-level installation - admin privileges required
-# This installer writes only to HKLM (system-wide) using the 64-bit registry view. 32-bit view is intentionally not used.
-RequestExecutionLevel admin
+# This installer runs elevated but writes HKCU registry keys for the original invoking user using UAC plugin
+RequestExecutionLevel user
 
 ######################################################################
 
@@ -47,13 +47,7 @@ InstallDir "${INSTALL_DIR}"
 ######################################################################
 
 Var PROGRAMDATA_DIR
-
-######################################################################
-
-Function .onInit
-	SetRegView 64
-	ReadEnvStr $PROGRAMDATA_DIR "PROGRAMDATA"
-FunctionEnd
+Var __UAC_L
 
 ######################################################################
 
@@ -64,6 +58,7 @@ FunctionEnd
 
 !include "MUI2.nsh"
 !include "StrFunc.nsh"
+!include "UAC.nsh"
 ${Using:StrFunc} StrRep
 
 !define MUI_ABORTWARNING
@@ -79,6 +74,75 @@ ${Using:StrFunc} StrRep
 !insertmacro MUI_UNPAGE_FINISH
 
 !insertmacro MUI_LANGUAGE "English"
+
+!define MUI_INSTFILESPAGE_FINISHHEADER_SUBTEXT "Installation complete"
+ShowInstDetails show
+
+######################################################################
+
+# Custom UAC macros for registry operations as user
+# Pattern based on UAC_AsUser_ExecShell from UAC.nsh
+
+!macro UAC_AsUser_RegWrite hive key valuename valuedata
+	!insertmacro _UAC_IncL
+	goto _UAC_L_E_${__UAC_L}
+	_UAC_L_F_${__UAC_L}:
+	WriteRegStr ${hive} "${key}" "${valuename}" "${valuedata}"
+	return
+	_UAC_L_E_${__UAC_L}:
+	!insertmacro UAC_AsUser_Call Label _UAC_L_F_${__UAC_L} ${UAC_SYNCREGISTERS}
+!macroend
+
+!macro UAC_AsUser_RegDeleteKey hive key
+	!insertmacro _UAC_IncL
+	goto _UAC_L_E_${__UAC_L}
+	_UAC_L_F_${__UAC_L}:
+	DeleteRegKey ${hive} "${key}"
+	return
+	_UAC_L_E_${__UAC_L}:
+	!insertmacro UAC_AsUser_Call Label _UAC_L_F_${__UAC_L} ${UAC_SYNCREGISTERS}
+!macroend
+
+######################################################################
+
+!macro Init thing
+uac_tryagain:
+!insertmacro UAC_RunElevated
+${Switch} $0
+${Case} 0
+	${IfThen} $1 = 1 ${|} Quit ${|} ;we are the outer process, the inner process has done its work, we are done
+	${IfThen} $3 <> 0 ${|} ${Break} ${|} ;we are admin, let the show go on
+	${If} $1 = 3 ;RunAs completed successfully, but with a non-admin user
+	MessageBox mb_YesNo|mb_IconExclamation|mb_TopMost|mb_SetForeground "This ${thing} requires admin privileges, try again" /SD IDNO IDYES uac_tryagain IDNO 0
+	${EndIf}
+	;fall-through and die
+${Case} 1223
+	MessageBox mb_IconStop|mb_TopMost|mb_SetForeground "This ${thing} requires admin privileges, aborting!"
+	Quit
+${Case} 1062
+	MessageBox mb_IconStop|mb_TopMost|mb_SetForeground "Logon service not running, aborting!"
+	Quit
+${Default}
+	MessageBox mb_IconStop|mb_TopMost|mb_SetForeground "Unable to elevate, error $0"
+	Quit
+${EndSwitch}
+
+SetShellVarContext all
+!macroend
+
+######################################################################
+
+Function .onInit
+	SetRegView 64
+	ReadEnvStr $PROGRAMDATA_DIR "PROGRAMDATA"
+	!insertmacro Init "installer"
+FunctionEnd
+
+Function un.onInit
+	SetRegView 64
+	ReadEnvStr $PROGRAMDATA_DIR "PROGRAMDATA"
+	!insertmacro Init "uninstaller"
+FunctionEnd
 
 ######################################################################
 
@@ -108,7 +172,7 @@ Section -MainProgram
 	SetOverwrite on  # Force overwrite regardless of timestamps
 	SetOutPath "$INSTDIR"
 	
-	# Try copy-first approach to avoid delete-before-copy race condition
+	# Main application executable
 	ClearErrors
 	File "mvdcoapp.exe"
 	${If} ${Errors}
@@ -122,6 +186,20 @@ Section -MainProgram
 		${EndIf}
 	${EndIf}
 	
+	# Lightweight custom fs-ui
+	ClearErrors
+	File "mvd-fileui.exe"
+	${If} ${Errors}
+		Delete /REBOOTOK "$INSTDIR\mvd-fileui.exe"
+		ClearErrors
+		File "mvd-fileui.exe"
+		${If} ${Errors}
+			MessageBox MB_OK|MB_ICONSTOP "Failed to install mvd-fileui.exe. Please close all browsers and try again."
+			Abort
+		${EndIf}
+	${EndIf}
+	
+	# Media processing binaries (ffmpeg, ffprobe)
 	ClearErrors
 	File "ffmpeg.exe"
 	${If} ${Errors}
@@ -145,18 +223,6 @@ Section -MainProgram
 			Abort
 		${EndIf}
 	${EndIf}
-	
-	ClearErrors
-	File "mvd-fileui.exe"
-	${If} ${Errors}
-		Delete /REBOOTOK "$INSTDIR\mvd-fileui.exe"
-		ClearErrors
-		File "mvd-fileui.exe"
-		${If} ${Errors}
-			MessageBox MB_OK|MB_ICONSTOP "Failed to install mvd-fileui.exe. Please close all browsers and try again."
-			Abort
-		${EndIf}
-	${EndIf}
 
 SectionEnd
 
@@ -167,9 +233,9 @@ Section -CreateManifests
 	DetailPrint "Creating browser manifests..."
 	SetDetailsPrint listonly
 
-	# Build absolute path for JSON
-	StrCpy $1 "$INSTDIR\mvdcoapp.exe"
-	${StrRep} $1 $1 "\" "\\"
+	# Use relative path (mvdcoapp.exe) instead of full path
+	# This is more resilient - Windows resolves it relative to the manifest location
+	StrCpy $1 "mvdcoapp.exe"
 
 	# Create Chromium manifest
 	FileOpen $0 "$INSTDIR\chromium-manifest.json" w
@@ -228,9 +294,24 @@ Section -RegisterBrowsers
 	WriteRegStr ${REG_ROOT} "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
 	WriteRegStr ${REG_ROOT} "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
 	WriteRegStr ${REG_ROOT} "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	WriteRegStr ${REG_ROOT} "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	WriteRegStr ${REG_ROOT} "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
 
 	# Firefox (system-wide, HKLM)
 	WriteRegStr ${REG_ROOT} "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\mozilla-manifest.json"
+
+	# Chrome/Chromium family (per-user, HKCU) - using UAC to write as original user
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+
+	# Firefox (per-user, HKCU)
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\mozilla-manifest.json"
 
 SectionEnd
 
@@ -258,7 +339,6 @@ SectionEnd
 
 Section Uninstall
 	${INSTALL_TYPE}
-	SetRegView 64
 
 	SetDetailsPrint textonly
 	DetailPrint "Removing MAX Video Downloader CoApp..."
@@ -268,7 +348,7 @@ Section Uninstall
 	nsExec::ExecToStack 'taskkill /f /im mvdcoapp.exe /t'
 	Sleep 1000
 
-	# Remove browser registrations
+	# Remove from HKLM (system-wide)
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp"
@@ -276,7 +356,20 @@ Section Uninstall
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	DeleteRegKey ${REG_ROOT} "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	DeleteRegKey ${REG_ROOT} "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	DeleteRegKey ${REG_ROOT} "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	
+	# Remove from HKCU (per-user) - using UAC to delete as original user
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 
 	# Remove application registration
 	DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
