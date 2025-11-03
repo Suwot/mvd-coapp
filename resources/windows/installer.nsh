@@ -258,6 +258,7 @@ SectionEnd
 
 Section Uninstall
 	${INSTALL_TYPE}
+	SetRegView 64
 
 	SetDetailsPrint textonly
 	DetailPrint "Removing MAX Video Downloader CoApp..."
