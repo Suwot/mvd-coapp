@@ -12,18 +12,24 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// Core directories - simple and universal across all OSes
-const TEMP_DIR = path.join(os.tmpdir(), 'mvdcoapp');
-const LOG_FILE = path.join(TEMP_DIR, 'mvdcoapp.log');
+// Determine temp directory (create + canonicalize)
+const isSnap = !!(process.env.SNAP || process.env.SNAP_REVISION) || os.tmpdir().includes('snap');
+const cacheBase = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
+const rawTempDir = isSnap ? path.join(cacheBase, 'mvdcoapp') : path.join(os.tmpdir(), 'mvdcoapp');
 
-// Ensure temp directory exists
+let tempDir;
+
 try {
-    if (!fs.existsSync(TEMP_DIR)) {
-        fs.mkdirSync(TEMP_DIR, { recursive: true });
-    }
-} catch (err) {
-    // If directory creation fails, continue with fallback behavior
+  fs.mkdirSync(rawTempDir, { recursive: true });
+  tempDir = fs.realpathSync(rawTempDir); // canonical absolute path
+} catch {
+  // fallback if realpath fails (rare)
+  tempDir = rawTempDir;
 }
+
+// Exported constants
+const TEMP_DIR = tempDir;
+const LOG_FILE = path.join(TEMP_DIR, 'mvdcoapp.log');
 
 function logDebug(...args) {
     try {
