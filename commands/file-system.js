@@ -73,7 +73,14 @@ class FileSystemCommand extends BaseCommand {
         }
 
         const command = this.getOpenFileCommand(filePath);
-        await this.executeCommand(command.cmd, command.args);
+        
+        try {
+            await this.executeCommand(command.cmd, command.args);
+            logDebug(`Successfully executed open command for: ${filePath}`);
+        } catch (error) {
+            logDebug(`Failed to open file ${filePath}: ${error.message}`);
+            throw error;
+        }
 
         const result = { success: true, operation: 'openFile', filePath };
         this.sendMessage(result);
@@ -337,9 +344,29 @@ return POSIX path of chosenFile`;
                         reject(new Error(errorMsg));
                     }
                 } else {
-                    // Fire-and-forget operations (GUI actions) - spawn success = operation success
-                    // Ignore exit codes for GUI apps, only spawn errors matter
-                    resolve(null);
+                    // For file operations, check exit code to ensure success
+                    if (code === 0) {
+                        resolve(code);
+                    } else {
+                        // Special fallback for xdg-open on Linux - try gio open
+                        if (process.platform === 'linux' && cmd === 'xdg-open' && args.length > 0) {
+                            logDebug(`xdg-open failed with code ${code}, trying gio open as fallback`);
+                            try {
+                                // Try gio open as fallback
+                                this.executeCommand('gio', ['open', args[0]]).then(() => {
+                                    resolve(0); // Success with fallback
+                                }).catch((gioError) => {
+                                    reject(new Error(`Both xdg-open and gio failed: xdg-open (${code}: ${errorOutput}), gio (${gioError.message})`));
+                                });
+                                return; // Don't reject yet, wait for fallback
+                            } catch (fallbackError) {
+                                // Fallback failed immediately
+                                reject(new Error(`Command failed with exit code ${code}: ${errorOutput || 'Unknown error'}. Fallback also failed: ${fallbackError.message}`));
+                                return;
+                            }
+                        }
+                        reject(new Error(`Command failed with exit code ${code}: ${errorOutput || 'Unknown error'}`));
+                    }
                 }
             });
 
