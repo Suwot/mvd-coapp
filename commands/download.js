@@ -16,7 +16,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug, getFullEnv, getBinaryPaths } = require('../utils/utils');
+const { logDebug, getFullEnv, getBinaryPaths, normalizeForFsWindows } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
 // Command for downloading videos
@@ -421,22 +421,16 @@ class DownloadCommand extends BaseCommand {
             allowOverwrite = false
         } = params;
 
-        // Use downloadId directly from extension (no need to generate sessionId)
-        if (!downloadId) {
-            throw new Error('downloadId is required for download tracking');
-        }
+        // Use downloadId directly from extension
+        if (!downloadId) throw new Error('downloadId is required for download tracking');
 
         logDebug('Starting download with downloadId:', downloadId, params);
-        
         if (headers && Object.keys(headers).length > 0) {
             logDebug('🔑 Using headers for download request:', Object.keys(headers));
         }
         
         try {
-            // Get required services
             const { ffmpegPath } = getBinaryPaths();
-            
-            // Use container from extension (trusted completely)
             logDebug('📦 Using container from extension:', container);
             
             // Generate clean output filename with mode-specific suffixes
@@ -445,50 +439,38 @@ class DownloadCommand extends BaseCommand {
             // Resolve final output path with uniqueness check
             let uniqueOutput = this.resolveOutputPath(outputFilename, savePath, allowOverwrite);
             
-            // Ensure output directory exists and is writable
-            const outputDir = path.dirname(uniqueOutput);
-            let outputPath = uniqueOutput;
+            // Separate paths: UI uses human-readable path, FS/FFmpeg use normalized path
+            const uiOutputPath = uniqueOutput; // For UI messages, logs, display
+            let fsOutputPath = uniqueOutput;   // For FS operations and FFmpeg
+            
+            // Normalize for Windows long paths (adds \\?\ prefix if >240 chars)
+            if (process.platform === 'win32') {
+                fsOutputPath = normalizeForFsWindows(uniqueOutput);
+                if (fsOutputPath !== uniqueOutput) {
+                    logDebug('Using normalized long-path for FS operations:', fsOutputPath);
+                }
+            }
+            
             try {
-                // Normalize path segments (trim whitespace, strip trailing dots)
-                const normalizedDir = path.normalize(outputDir).split(path.sep).map(segment => 
-                    segment.trim().replace(/\.$/, '')
-                ).join(path.sep);
-                
-                // Create final output path with normalized directory
-                outputPath = path.join(normalizedDir, path.basename(uniqueOutput));
-                
-                // Create directory tree recursively
-                fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-                
-                // Preflight write access
-                fs.accessSync(path.dirname(outputPath), fs.constants.W_OK);
-                
+                fs.mkdirSync(path.dirname(fsOutputPath), { recursive: true }); // create directory tree
+                fs.accessSync(path.dirname(fsOutputPath), fs.constants.W_OK); // check write access
             } catch (dirError) {
                 logDebug('Directory creation/access error:', dirError);
-                throw new Error(`Cannot create or access output directory: ${outputDir}. ${dirError.message}`);
+                throw new Error(`Cannot create or access output directory: ${path.dirname(uiOutputPath)}. ${dirError.message}`);
             }
             
-            // For FFmpeg: use long-path prefix on Windows if needed (>240 chars)
-            // Store clean path separately for all non-FFmpeg operations
-            let ffmpegOutputPath = outputPath;
-            const needsPrefix = process.platform === 'win32' && outputPath.length > 240;
-            if (needsPrefix) {
-                ffmpegOutputPath = '\\\\?\\' + path.resolve(outputPath);
-                logDebug('Using long path prefix for FFmpeg:', ffmpegOutputPath);
-            }
-            
-            // Send resolved filename to extension immediately
+            // Send resolved filename to extension immediately (use uiOutputPath for display)
             this.sendMessage({
                 command: 'filename-resolved',
                 downloadId: downloadId,
-                resolvedFilename: path.basename(outputPath)
+                resolvedFilename: path.basename(uiOutputPath)
             }, { useMessageId: false });
             
-            // Build FFmpeg command arguments
+            // Build FFmpeg command arguments (uses fsOutputPath with long-path normalization)
             const ffmpegArgs = this.buildFFmpegArgs({
                 downloadUrl,
                 type,
-                outputPath: ffmpegOutputPath,
+                outputPath: fsOutputPath,
                 container,
                 audioOnly,
                 subsOnly,
@@ -503,11 +485,12 @@ class DownloadCommand extends BaseCommand {
             
             logDebug('FFmpeg command:', ffmpegPath, ffmpegArgs.join(' '));
             
-            // Execute FFmpeg with progress tracking
+            // Execute FFmpeg with progress tracking (pass both UI and FS paths)
             return this.executeFFmpegWithProgress({
                 ffmpegPath,
                 ffmpegArgs,
-                uniqueOutput: outputPath,
+                uiOutputPath,      // For UI messages and display
+                fsOutputPath,       // For FS operations (normalized for long paths)
                 downloadUrl,
                 type,
                 headers, 
@@ -515,7 +498,7 @@ class DownloadCommand extends BaseCommand {
                 fileSizeBytes,
                 audioOnly,
                 subsOnly,
-                downloadId, // Use downloadId instead of sessionId
+                downloadId,
 				isLive
             });
             
@@ -1035,7 +1018,8 @@ class DownloadCommand extends BaseCommand {
     executeFFmpegWithProgress({
         ffmpegPath,
         ffmpegArgs,
-        uniqueOutput,
+        uiOutputPath,       // For UI messages and display
+        fsOutputPath,       // For FS operations (normalized for long paths on Windows)
         downloadUrl,
         type,
         headers,
@@ -1043,7 +1027,7 @@ class DownloadCommand extends BaseCommand {
         fileSizeBytes,
         audioOnly,
         subsOnly,
-        downloadId, // Use downloadId instead of sessionId
+        downloadId,
 		isLive
     }) {
         return new Promise((resolve, _reject) => {
@@ -1092,7 +1076,8 @@ class DownloadCommand extends BaseCommand {
                 DownloadCommand.activeDownloads.set(downloadId, {
                     process: ffmpeg,
                     startTime: downloadStartTime,
-                    outputPath: uniqueOutput,
+                    outputPath: uiOutputPath,   // For display/logging
+                    fsOutputPath: fsOutputPath, // For FS operations
                     type,
                     headers: headers || null,
                     progressState
@@ -1125,11 +1110,11 @@ class DownloadCommand extends BaseCommand {
                     DownloadCommand.activeDownloads.delete(downloadId);
                 }
 
-                // Get minimal state needed for decision
+                // Get minimal state needed for decision (use normalized FS path for all file ops)
                 const userCanceled = downloadEntry?.wasCanceled || false;
                 const isLivestream = progressState.isLive || false;
-                const fileExists = fs.existsSync(uniqueOutput);
-                const fileSize = fileExists ? fs.statSync(uniqueOutput).size : 0;
+                const fileExists = fs.existsSync(fsOutputPath);
+                const fileSize = fileExists ? fs.statSync(fsOutputPath).size : 0;
                 
                 // Configurable thresholds
                 const MIN_MEDIA_BYTES = 50 * 1024; // 50KB for media files
@@ -1192,7 +1177,7 @@ class DownloadCommand extends BaseCommand {
                     const isEnoentExit = code === 4294967294 || code === -2; // -2 modulo 2^32
                     
                     if (hasDirectoryError || isEnoentExit) {
-                        message = `Output directory does not exist: ${path.dirname(uniqueOutput)}. Please create the folder or choose a different location.`;
+                        message = `Output directory does not exist: ${path.dirname(uiOutputPath)}. Please create the folder or choose a different location.`;
                         outcome.errorType = 'SAVE_DIR_MISSING';
                     } else if (hasPermissionError) {
                         message = `Windows Controlled Folder Access blocked writing to this folder. Allow the app in Security settings or choose another folder.`;
@@ -1205,11 +1190,11 @@ class DownloadCommand extends BaseCommand {
                     shouldPreserveFile = false;
                 }
                 
-                // Handle file operations based on decision
+                // Handle file operations based on decision (use normalized FS path)
                 if (fileExists && !shouldPreserveFile) {
                     try {
-                        fs.unlinkSync(uniqueOutput);
-                        logDebug('Removed file (not preservable for this outcome):', uniqueOutput);
+                        fs.unlinkSync(fsOutputPath);
+                        logDebug('Removed file (not preservable for this outcome):', fsOutputPath);
                     } catch (deleteError) {
                         logDebug('Could not delete file:', deleteError.message);
                     }
@@ -1217,14 +1202,14 @@ class DownloadCommand extends BaseCommand {
                 
                 logDebug(message);
                 
-                // Send appropriate message - FFmpeg-only data
+                // Send appropriate message to UI - use uiOutputPath for display
                 if (outcome.command === 'download-success') {
                     this.sendMessage({
                         command: 'download-success',
                         downloadId,
                         ...(shouldPreserveFile && {
-                            path: uniqueOutput,
-                            filename: path.basename(uniqueOutput),
+                            path: uiOutputPath,
+                            filename: path.basename(uiOutputPath),
                             downloadStats
                         }),
                         completedAt: Date.now(),
@@ -1235,7 +1220,7 @@ class DownloadCommand extends BaseCommand {
                     resolve({ 
                         success: true, 
                         downloadStats, 
-                        ...(shouldPreserveFile && { path: uniqueOutput }), 
+                        ...(shouldPreserveFile && { path: uiOutputPath }), 
                         ...(outcome.isPartial && { isPartial: true }) 
                     });
                     
@@ -1256,7 +1241,7 @@ class DownloadCommand extends BaseCommand {
                     this.sendMessage({
                         command: 'download-error',
                         downloadId,
-                        filename: path.basename(uniqueOutput),
+                        filename: path.basename(uiOutputPath),
                         success: false,
                         message: message,
                         errorMessage: collectedErrors || null,
@@ -1290,7 +1275,8 @@ class DownloadCommand extends BaseCommand {
                     this.executeFFmpegWithProgress({
                         ffmpegPath,
                         ffmpegArgs,
-                        uniqueOutput,
+                        uiOutputPath,
+                        fsOutputPath,
                         downloadUrl,
                         type,
                         headers,

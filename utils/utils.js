@@ -115,10 +115,35 @@ function getFullEnv() {
     };
 }
 
+/**
+ * Normalize path for Windows FS operations, adding \\?\ prefix for long paths (>240 chars)
+ * On non-Windows, returns path unchanged
+ * Handles both drive paths (C:\...) and UNC paths (\\server\share\...)
+ * @param {string} filePath - Path to normalize
+ * @returns {string} Normalized path with \\?\ prefix for long Windows paths
+ */
+function normalizeForFsWindows(filePath) {
+    if (process.platform !== 'win32') return filePath;
+
+    // Make absolute path (does not resolve symlinks; only makes path absolute and normalizes . and ..)
+    const abs = path.resolve(filePath);
+    const isUnc = abs.startsWith('\\\\'); // Decide by type: UNC starts with \\
+    
+    if (abs.startsWith('\\\\?\\')) return abs; // Already extended? Use as-is
+    if (abs.length <= 240) return abs; // Conservative length gate (240 chars cushion for MAX_PATH)
+
+    if (isUnc) {
+        return '\\\\?\\UNC\\' + abs.slice(2); // \\server\share\path -> \\?\UNC\server\share\path
+    } else {
+        return '\\\\?\\' + abs; // C:\path -> \\?\C:\path
+    }
+}
+
 module.exports = {
     logDebug,
     LOG_FILE,
     TEMP_DIR,
     getBinaryPaths,
-    getFullEnv
+    getFullEnv,
+    normalizeForFsWindows
 };

@@ -8,7 +8,7 @@
  */
 
 const BaseCommand = require('./base-command');
-const { logDebug, LOG_FILE, getBinaryPaths } = require('../utils/utils');
+const { logDebug, LOG_FILE, getBinaryPaths, normalizeForFsWindows } = require('../utils/utils');
 const { getLinuxDialog } = require('../lib/linux-dialog');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -206,11 +206,11 @@ class FileSystemCommand extends BaseCommand {
             const { fileuiPath } = getBinaryPaths();
             if (fileuiPath && fs.existsSync(fileuiPath)) {
                 logDebug('Using C++ helper for open file (avoids cmd.exe /c start)');
-                return { cmd: fileuiPath, args: ['--mode', 'open-file', '--path', `"${filePath}"`] };
+                return { cmd: fileuiPath, args: ['--mode', 'open-file', '--path', filePath] };
             }
             // Fallback to explorer (no /c start to reduce AV noise)
             logDebug('⚠️ C++ helper not found, falling back to explorer');
-            return { cmd: 'explorer', args: [`"${filePath}"`] };
+            return { cmd: 'explorer', args: [filePath] };
         } else if (process.platform === 'linux') {
             return { cmd: 'xdg-open', args: [filePath] };
         } else {
@@ -228,15 +228,14 @@ class FileSystemCommand extends BaseCommand {
         if (process.platform === 'darwin') {
             return { cmd: 'open', args: ['-R', filePath] };
         } else if (process.platform === 'win32') {
-            // Always use C++ helper on Windows (single robust codepath via Shell APIs)
-            // Avoids Explorer's /select command-line parsing quirks and handles any path length
+            // Use C++ helper with ShellExecuteEx (avoids cmd.exe /c start AV tripwire, handles long paths)
             const { fileuiPath } = getBinaryPaths();
             if (fileuiPath && fs.existsSync(fileuiPath)) {
-                logDebug('Using C++ helper for reveal (single robust codepath)');
-                return { cmd: fileuiPath, args: ['--mode', 'reveal', '--path', `"${filePath}"`] };
+                logDebug('Using C++ helper to show file in folder');
+                return { cmd: fileuiPath, args: ['--mode', 'reveal', '--path', filePath] };
             }
             logDebug('⚠️ C++ helper not found, falling back to explorer /select');
-            return { cmd: 'explorer', args: ['/select,', `"${filePath}"`] };
+            return { cmd: 'explorer', args: ['/select,', filePath] };
         } else if (process.platform === 'linux') {
             // Open the directory containing the file
             const dirPath = path.dirname(filePath);
@@ -330,7 +329,7 @@ return POSIX path of chosenFile`;
             logDebug(`Executing command: ${cmd} ${args.join(' ')}`);
 
             const childProcess = spawn(cmd, args, {
-                windowsVerbatimArguments: process.platform === 'win32'
+                windowsVerbatimArguments: false  // Let Node handle quote escaping on Windows
             });
             processManager.register(childProcess);
 
@@ -417,12 +416,12 @@ return POSIX path of chosenFile`;
 
         try {
             // Delete the file (use normalized path for long paths on Windows)
-            const normalized = this.normalizeForFsWindows(filePath);
+            const normalized = normalizeForFsWindows(filePath);
             fs.unlinkSync(normalized);
             
             // Check if this was the logs file and return updated size
             const isLogsFile = filePath === LOG_FILE;
-            const newSize = isLogsFile ? (this.fileExists(LOG_FILE) ? fs.statSync(this.normalizeForFsWindows(LOG_FILE)).size : 0) : undefined;
+            const newSize = isLogsFile ? (this.fileExists(LOG_FILE) ? fs.statSync(normalizeForFsWindows(LOG_FILE)).size : 0) : undefined;
             
             const result = { 
                 success: true, 
@@ -451,10 +450,10 @@ return POSIX path of chosenFile`;
             const { fileuiPath } = getBinaryPaths();
             if (fileuiPath && fs.existsSync(fileuiPath)) {
                 logDebug('Using C++ helper for open folder (single robust codepath)');
-                return { cmd: fileuiPath, args: ['--mode', 'open-folder', '--path', `"${folderPath}"`] };
+                return { cmd: fileuiPath, args: ['--mode', 'open-folder', '--path', folderPath] };
             }
             logDebug('⚠️ C++ helper not found, falling back to explorer');
-            return { cmd: 'explorer', args: [`"${folderPath}"`] };
+            return { cmd: 'explorer', args: [folderPath] };
         } else if (process.platform === 'linux') {
             return { cmd: 'xdg-open', args: [folderPath] };
         } else {
@@ -472,58 +471,16 @@ return POSIX path of chosenFile`;
         const clean = output.replace(/^\uFEFF/, '').trim();
         return clean || null;
     }
-
-    /**
-     * Normalize path for Windows FS operations, adding \\?\ prefix for long paths
-     * On non-Windows, returns path unchanged
-     * Handles both drive paths (C:\...) and UNC paths (\\server\share\...)
-     * Only called by fileExists() and testWritePermissions() for actual fs operations
-     * @param {string} filePath - Path to normalize
-     */
-    normalizeForFsWindows(filePath) {
-        if (process.platform !== 'win32') return filePath;
-
-        // Make absolute path (does not resolve symlinks; only makes path absolute and normalizes . and ..)
-        const abs = path.resolve(filePath);
-        const isUnc = abs.startsWith('\\\\'); // Decide by type: UNC starts with \\
-		
-        if (abs.startsWith('\\\\?\\')) return abs; // Already extended? Use as-is
-        if (abs.length <= 240) return abs; // Conservative length gate (240 chars cushion for MAX_PATH)
-
-        if (isUnc) { 
-			return '\\\\?\\UNC\\' + abs.slice(2); // \\server\share\path -> \\?\UNC\server\share\path
-        } else { 
-			return '\\\\?\\' + abs; // C:\path -> \\?\C:\path
-		} 
+	
+	// Get file stats with Windows long-path normalization
+    _normalizedStat(path) {
+        const normalized = normalizeForFsWindows(path);
+        return fs.statSync(normalized);
     }
 
-    /**
-     * Check if a path exists, handling Windows long paths > 260 chars
-     * Uses deterministic normalization for a single fs call
-     * @param {string} filePath - Path to check
-     */
-    fileExists(filePath) {
-        try {
-            const normalized = this.normalizeForFsWindows(filePath);
-            return fs.existsSync(normalized);
-        } catch (e) {
-            return false;
-        }
-    }
-
-    /**
-     * Check if a path is a directory, handling Windows long paths > 260 chars
-     * @param {string} dirPath - Path to check
-     */
-    isDirectory(dirPath) {
-        try {
-            const normalized = this.normalizeForFsWindows(dirPath);
-            const stat = fs.statSync(normalized);
-            return stat.isDirectory();
-        } catch (e) {
-            return false;
-        }
-    }
+	// Check if file exists with Windows long-path normalization
+	fileExists(path) { try { this._normalizedStat(path); return true; } catch { return false; } }
+	isDirectory(path) { try { return this._normalizedStat(path).isDirectory(); } catch { return false; } }
 
     /**
      * Test write permissions by actually trying to create and delete a test file
@@ -536,7 +493,7 @@ return POSIX path of chosenFile`;
         const randomSuffix = Math.random().toString(36).substring(7);
         const testFile = path.join(directoryPath, `maxvd_test_${randomSuffix}.tmp`);
         // Normalize the test file path using the same Windows long-path logic
-        const normalizedTestFile = this.normalizeForFsWindows(testFile);
+        const normalizedTestFile = normalizeForFsWindows(testFile);
         
         try {
             // Atomically create test file (fails if exists, won't overwrite)

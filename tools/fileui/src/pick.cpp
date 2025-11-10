@@ -354,12 +354,40 @@ int main() {
     }
 
     PWSTR wz = nullptr;
+    // Get path and strip \\?\ prefix for UI/history storage
     hr = psi->GetDisplayName(SIGDN_FILESYSPATH, &wz);
     int rc = 1;
     if (SUCCEEDED(hr) && wz && *wz) {
-        rc = write_utf8_stdout(wz);
+        const wchar_t* outputPath = wz;
+        // UNC check first (longer pattern)
+        if (wcsncmp(wz, L"\\\\?\\UNC\\", 8) == 0) {
+            const wchar_t* uncPath = wz + 8;
+            wchar_t* tempBuffer = (wchar_t*)malloc((wcslen(uncPath) + 3) * sizeof(wchar_t));
+            if (tempBuffer) {
+                wcscpy(tempBuffer, L"\\\\");
+                wcscat(tempBuffer, uncPath);
+                rc = write_utf8_stdout(tempBuffer);
+                free(tempBuffer);
+            } else {
+                rc = 1; // malloc failed
+            }
+            CoTaskMemFree(wz);
+            goto cleanup;
+        } else if (wcsncmp(wz, L"\\\\?\\", 4) == 0) {
+            // Regular path with \\?\ prefix - skip 4 chars
+            outputPath = wz + 4;
+        }
+        // Convert 8.3 short names to long names (happens on file overwrite)
+        wchar_t longPath[32768];
+        DWORD len = GetLongPathNameW(outputPath, longPath, 32768);
+        if (len > 0 && len < 32768) {
+            rc = write_utf8_stdout(longPath);
+        } else {
+            rc = write_utf8_stdout(outputPath);
+        }
         CoTaskMemFree(wz);
     }
+cleanup:
     psi->Release();
     pfd->Release();
     CoUninitialize();
