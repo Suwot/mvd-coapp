@@ -443,20 +443,52 @@ class DownloadCommand extends BaseCommand {
             const outputFilename = this.generateOutputFilename(filename, container, audioOnly, subsOnly, audioLabel, subsLabel);
             
             // Resolve final output path with uniqueness check
-            const uniqueOutput = this.resolveOutputPath(outputFilename, savePath, allowOverwrite);
+            let uniqueOutput = this.resolveOutputPath(outputFilename, savePath, allowOverwrite);
+            
+            // Ensure output directory exists and is writable
+            const outputDir = path.dirname(uniqueOutput);
+            let outputPath = uniqueOutput;
+            try {
+                // Normalize path segments (trim whitespace, strip trailing dots)
+                const normalizedDir = path.normalize(outputDir).split(path.sep).map(segment => 
+                    segment.trim().replace(/\.$/, '')
+                ).join(path.sep);
+                
+                // Create final output path with normalized directory
+                outputPath = path.join(normalizedDir, path.basename(uniqueOutput));
+                
+                // Create directory tree recursively
+                fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+                
+                // Preflight write access
+                fs.accessSync(path.dirname(outputPath), fs.constants.W_OK);
+                
+            } catch (dirError) {
+                logDebug('Directory creation/access error:', dirError);
+                throw new Error(`Cannot create or access output directory: ${outputDir}. ${dirError.message}`);
+            }
+            
+            // For FFmpeg: use long-path prefix on Windows if needed (>240 chars)
+            // Store clean path separately for all non-FFmpeg operations
+            let ffmpegOutputPath = outputPath;
+            const needsPrefix = process.platform === 'win32' && outputPath.length > 240;
+            if (needsPrefix) {
+                ffmpegOutputPath = '\\\\?\\' + path.resolve(outputPath);
+                logDebug('Using long path prefix for FFmpeg:', ffmpegOutputPath);
+            }
             
             // Send resolved filename to extension immediately
             this.sendMessage({
                 command: 'filename-resolved',
                 downloadId: downloadId,
-                resolvedFilename: path.basename(uniqueOutput)
+                resolvedFilename: path.basename(outputPath)
             }, { useMessageId: false });
             
             // Build FFmpeg command arguments
             const ffmpegArgs = this.buildFFmpegArgs({
                 downloadUrl,
                 type,
-                outputPath: uniqueOutput,
+                outputPath: ffmpegOutputPath,
                 container,
                 audioOnly,
                 subsOnly,
@@ -475,7 +507,7 @@ class DownloadCommand extends BaseCommand {
             return this.executeFFmpegWithProgress({
                 ffmpegPath,
                 ffmpegArgs,
-                uniqueOutput,
+                uniqueOutput: outputPath,
                 downloadUrl,
                 type,
                 headers, 
@@ -558,7 +590,8 @@ class DownloadCommand extends BaseCommand {
         let outputPath = path.join(targetDir, filename);
         
         // Simple length check: if path > 260 chars, truncate filename to 250 chars max
-        if (outputPath.length > 260) {
+        // Skip truncation on Windows since we now support long paths with \\?\ prefix
+        if (outputPath.length > 260 && process.platform !== 'win32') {
             const ext = path.extname(filename);
             const baseName = path.basename(filename, ext);
             const truncatedBase = baseName.length > 250 ? baseName.substring(0, 247) + '...' : baseName;
@@ -588,8 +621,8 @@ class DownloadCommand extends BaseCommand {
                 uniqueOutput = `${base} (${counter})${ext}`;
                 counter++;
                 
-                // Re-check path length after adding counter
-                if (uniqueOutput.length > 255) {
+                // Re-check path length after adding counter (skip on Windows due to long path support)
+                if (uniqueOutput.length > 255 && process.platform !== 'win32') {
                     const baseForCounter = base.substring(0, base.length - 10); // Make more room
                     uniqueOutput = `${baseForCounter}... (${counter})${ext}`;
                 }
@@ -608,8 +641,8 @@ class DownloadCommand extends BaseCommand {
             uniqueOutput = `${base} (${counter})${ext}`;
             counter++;
             
-            // Re-check path length after adding counter
-            if (uniqueOutput.length > 255) {
+            // Re-check path length after adding counter (skip on Windows due to long path support)
+            if (uniqueOutput.length > 255 && process.platform !== 'win32') {
                 const baseForCounter = base.substring(0, base.length - 10); // Make more room
                 uniqueOutput = `${baseForCounter}... (${counter})${ext}`;
             }
@@ -1148,8 +1181,27 @@ class DownloadCommand extends BaseCommand {
                 } else {
                     // All other cases = error (includes completed but too small, crashes, etc.)
                     outcome = { command: 'download-error', success: false };
-                    message = completed ? 'Download completed but output file is too small or empty' : 
-                             `Process exited with code ${code}${signal ? ` (signal: ${signal})` : ''}`;
+                    
+                    // Check for specific errors
+                    const hasDirectoryError = progressState.errorLines.some(line => 
+                        line.includes('No such file or directory') && line.includes('Error opening output')
+                    );
+                    const hasPermissionError = progressState.errorLines.some(line => 
+                        line.toLowerCase().includes('permission denied')
+                    );
+                    const isEnoentExit = code === 4294967294 || code === -2; // -2 modulo 2^32
+                    
+                    if (hasDirectoryError || isEnoentExit) {
+                        message = `Output directory does not exist: ${path.dirname(uniqueOutput)}. Please create the folder or choose a different location.`;
+                        outcome.errorType = 'SAVE_DIR_MISSING';
+                    } else if (hasPermissionError) {
+                        message = `Windows Controlled Folder Access blocked writing to this folder. Allow the app in Security settings or choose another folder.`;
+                        outcome.errorType = 'SAVE_DIR_BLOCKED';
+                    } else {
+                        message = completed ? 'Download completed but output file is too small or empty' : 
+                                 `Process exited with code ${code}${signal ? ` (signal: ${signal})` : ''}`;
+                    }
+                    
                     shouldPreserveFile = false;
                 }
                 

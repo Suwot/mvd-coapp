@@ -65,8 +65,8 @@ class FileSystemCommand extends BaseCommand {
             throw new Error('File path is required');
         }
 
-        // Check if file exists
-        if (!fs.existsSync(filePath)) {
+        // Check if file exists (handles Windows long paths > 260 chars)
+        if (!this.fileExists(filePath)) {
             const error = new Error(`File doesn't exist: ${filePath}`);
             error.key = 'fileNotFound';
             throw error;
@@ -101,7 +101,7 @@ class FileSystemCommand extends BaseCommand {
         if (openFolderOnly) {
             // Open folder without pointing to file (file is known to be deleted)
             const folderPath = path.dirname(filePath);
-            if (!fs.existsSync(folderPath)) {
+            if (!this.fileExists(folderPath)) {
                 const error = new Error(`Folder doesn't exist: ${folderPath}`);
                 error.key = 'folderNotFound';
                 throw error;
@@ -109,8 +109,8 @@ class FileSystemCommand extends BaseCommand {
             const command = this.getOpenFolderCommand(folderPath);
             await this.executeCommand(command.cmd, command.args);
         } else {
-            // Normal operation - check if file exists and show in folder
-            if (!fs.existsSync(filePath)) {
+            // Normal operation - check if file exists and show in folder (handles Windows long paths)
+            if (!this.fileExists(filePath)) {
                 const error = new Error(`File doesn't exist: ${filePath}`);
                 error.key = 'fileNotFound';
                 throw error;
@@ -170,8 +170,8 @@ class FileSystemCommand extends BaseCommand {
             throw error;
         }
 
-        // Check if user chose to overwrite an existing file
-        const willOverwrite = fs.existsSync(selectedPath);
+        // Check if user chose to overwrite an existing file (handles Windows long paths > 260 chars)
+        const willOverwrite = this.fileExists(selectedPath);
 
         // Always return path, directory, and filename for clarity
         const directory = path.dirname(selectedPath);
@@ -195,12 +195,22 @@ class FileSystemCommand extends BaseCommand {
 
     /**
      * Get platform-specific command for opening file
+     * On Windows, uses C++ helper with ShellExecuteEx to avoid cmd.exe /c start (AV tripwire)
+     * Falls back to explorer (no /c) if helper is unavailable
      */
     getOpenFileCommand(filePath) {
         if (process.platform === 'darwin') {
             return { cmd: 'open', args: [filePath] };
         } else if (process.platform === 'win32') {
-            return { cmd: 'cmd.exe', args: ['/c', 'start', '""', `"${filePath}"`] };
+            // Use C++ helper with ShellExecuteEx (avoids cmd.exe /c start AV tripwire, handles long paths)
+            const { fileuiPath } = getBinaryPaths();
+            if (fileuiPath && fs.existsSync(fileuiPath)) {
+                logDebug('Using C++ helper for open file (avoids cmd.exe /c start)');
+                return { cmd: fileuiPath, args: ['--mode', 'open-file', '--path', `"${filePath}"`] };
+            }
+            // Fallback to explorer (no /c start to reduce AV noise)
+            logDebug('⚠️ C++ helper not found, falling back to explorer');
+            return { cmd: 'explorer', args: [`"${filePath}"`] };
         } else if (process.platform === 'linux') {
             return { cmd: 'xdg-open', args: [filePath] };
         } else {
@@ -210,11 +220,22 @@ class FileSystemCommand extends BaseCommand {
 
     /**
      * Get platform-specific command for showing file in folder
+     * On Windows, always uses C++ helper with Shell APIs (SHOpenFolderAndSelectItems)
+     * This provides single robust codepath that avoids Explorer's command-line parsing quirks
+     * and handles paths > 260 chars natively
      */
     getShowInFolderCommand(filePath) {
         if (process.platform === 'darwin') {
             return { cmd: 'open', args: ['-R', filePath] };
         } else if (process.platform === 'win32') {
+            // Always use C++ helper on Windows (single robust codepath via Shell APIs)
+            // Avoids Explorer's /select command-line parsing quirks and handles any path length
+            const { fileuiPath } = getBinaryPaths();
+            if (fileuiPath && fs.existsSync(fileuiPath)) {
+                logDebug('Using C++ helper for reveal (single robust codepath)');
+                return { cmd: fileuiPath, args: ['--mode', 'reveal', '--path', `"${filePath}"`] };
+            }
+            logDebug('⚠️ C++ helper not found, falling back to explorer /select');
             return { cmd: 'explorer', args: ['/select,', `"${filePath}"`] };
         } else if (process.platform === 'linux') {
             // Open the directory containing the file
@@ -232,7 +253,7 @@ class FileSystemCommand extends BaseCommand {
         if (process.platform === 'darwin') {
             const escAS = s => String(s).replace(/"/g, '\\"');
             let script = `set chosenFolder to choose folder with prompt "${escAS(title)}"`;
-            if (defaultPath && fs.existsSync(defaultPath)) {
+            if (defaultPath && this.isDirectory(defaultPath)) {
                 script += ` default location POSIX file "${escAS(defaultPath)}"`;
             }
             script += `\nreturn POSIX path of chosenFolder`;
@@ -247,7 +268,7 @@ class FileSystemCommand extends BaseCommand {
             }
             logDebug('Using C++ folder picker helper');
             const args = ['--mode', 'pick-folder', '--title', title || 'Choose Folder'];
-            if (defaultPath && fs.existsSync(defaultPath)) {
+            if (defaultPath && this.isDirectory(defaultPath)) {
                 args.push('--initial', defaultPath);
             }
             return { cmd: fileuiPath, args };
@@ -265,7 +286,7 @@ class FileSystemCommand extends BaseCommand {
         if (process.platform === 'darwin') {
             const escAS = s => String(s).replace(/"/g, '\\"');
             let script = `set chosenFile to choose file name with prompt "${escAS(title)}" default name "${escAS(defaultName)}"`;
-            if (defaultPath && fs.existsSync(defaultPath)) {
+            if (defaultPath && this.fileExists(defaultPath)) {
                 script += ` default location POSIX file "${escAS(defaultPath)}"`;
             }
             script += `
@@ -281,12 +302,12 @@ return POSIX path of chosenFile`;
             }
             logDebug('Using C++ save file dialog helper');
             const args = ['--mode', 'save-file', '--title', title || 'Save As', '--name', defaultName];
-            if (defaultPath && fs.existsSync(defaultPath)) {
+            if (defaultPath && this.isDirectory(defaultPath)) {
                 args.push('--initial', defaultPath);
             } else {
                 // Use Downloads folder as default if no path specified
                 const downloadsPath = path.join(require('os').homedir(), 'Downloads');
-                if (fs.existsSync(downloadsPath)) {
+                if (this.isDirectory(downloadsPath)) {
                     args.push('--initial', downloadsPath);
                 }
             }
@@ -387,20 +408,21 @@ return POSIX path of chosenFile`;
             throw new Error('File path is required');
         }
 
-        // Check if file exists
-        if (!fs.existsSync(filePath)) {
+        // Check if file exists (handles Windows long paths > 260 chars)
+        if (!this.fileExists(filePath)) {
             const error = new Error(`File doesn't exist: ${filePath}`);
             error.key = 'fileNotFound';
             throw error;
         }
 
         try {
-            // Delete the file
-            fs.unlinkSync(filePath);
+            // Delete the file (use normalized path for long paths on Windows)
+            const normalized = this.normalizeForFsWindows(filePath);
+            fs.unlinkSync(normalized);
             
             // Check if this was the logs file and return updated size
             const isLogsFile = filePath === LOG_FILE;
-            const newSize = isLogsFile ? (fs.existsSync(LOG_FILE) ? fs.statSync(LOG_FILE).size : 0) : undefined;
+            const newSize = isLogsFile ? (this.fileExists(LOG_FILE) ? fs.statSync(this.normalizeForFsWindows(LOG_FILE)).size : 0) : undefined;
             
             const result = { 
                 success: true, 
@@ -418,11 +440,20 @@ return POSIX path of chosenFile`;
 
     /**
      * Get platform-specific command for opening folder
+     * On Windows, always uses C++ helper with Shell APIs (single robust codepath)
+     * Avoids Explorer's Unicode/NTFS quirks and handles any path length
      */
     getOpenFolderCommand(folderPath) {
         if (process.platform === 'darwin') {
             return { cmd: 'open', args: [folderPath] };
         } else if (process.platform === 'win32') {
+            // Always use C++ helper on Windows (single robust codepath via Shell APIs) to handle any path length
+            const { fileuiPath } = getBinaryPaths();
+            if (fileuiPath && fs.existsSync(fileuiPath)) {
+                logDebug('Using C++ helper for open folder (single robust codepath)');
+                return { cmd: fileuiPath, args: ['--mode', 'open-folder', '--path', `"${folderPath}"`] };
+            }
+            logDebug('⚠️ C++ helper not found, falling back to explorer');
             return { cmd: 'explorer', args: [`"${folderPath}"`] };
         } else if (process.platform === 'linux') {
             return { cmd: 'xdg-open', args: [folderPath] };
@@ -443,19 +474,77 @@ return POSIX path of chosenFile`;
     }
 
     /**
+     * Normalize path for Windows FS operations, adding \\?\ prefix for long paths
+     * On non-Windows, returns path unchanged
+     * Handles both drive paths (C:\...) and UNC paths (\\server\share\...)
+     * Only called by fileExists() and testWritePermissions() for actual fs operations
+     * @param {string} filePath - Path to normalize
+     */
+    normalizeForFsWindows(filePath) {
+        if (process.platform !== 'win32') return filePath;
+
+        // Make absolute path (does not resolve symlinks; only makes path absolute and normalizes . and ..)
+        const abs = path.resolve(filePath);
+        const isUnc = abs.startsWith('\\\\'); // Decide by type: UNC starts with \\
+		
+        if (abs.startsWith('\\\\?\\')) return abs; // Already extended? Use as-is
+        if (abs.length <= 240) return abs; // Conservative length gate (240 chars cushion for MAX_PATH)
+
+        if (isUnc) { 
+			return '\\\\?\\UNC\\' + abs.slice(2); // \\server\share\path -> \\?\UNC\server\share\path
+        } else { 
+			return '\\\\?\\' + abs; // C:\path -> \\?\C:\path
+		} 
+    }
+
+    /**
+     * Check if a path exists, handling Windows long paths > 260 chars
+     * Uses deterministic normalization for a single fs call
+     * @param {string} filePath - Path to check
+     */
+    fileExists(filePath) {
+        try {
+            const normalized = this.normalizeForFsWindows(filePath);
+            return fs.existsSync(normalized);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * Check if a path is a directory, handling Windows long paths > 260 chars
+     * @param {string} dirPath - Path to check
+     */
+    isDirectory(dirPath) {
+        try {
+            const normalized = this.normalizeForFsWindows(dirPath);
+            const stat = fs.statSync(normalized);
+            return stat.isDirectory();
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
      * Test write permissions by actually trying to create and delete a test file
-     * Uses ASCII-only filename for cross-platform compatibility
+     * Uses atomic creation (O_CREAT|O_EXCL) to avoid clobbering existing files
+     * Uses the same fs normalization as fileExists() for long paths
      * @param {string} directoryPath - Directory to test
      */
     async testWritePermissions(directoryPath) {
-        // Use simple ASCII filename to avoid encoding issues across platforms
-        const testFile = path.join(directoryPath, 'maxvd_test.tmp');
+        // Generate unique test filename to avoid clobbering existing files
+        const randomSuffix = Math.random().toString(36).substring(7);
+        const testFile = path.join(directoryPath, `maxvd_test_${randomSuffix}.tmp`);
+        // Normalize the test file path using the same Windows long-path logic
+        const normalizedTestFile = this.normalizeForFsWindows(testFile);
         
         try {
-            // Try to create a test file
-            await fs.promises.writeFile(testFile, 'test');
+            // Atomically create test file (fails if exists, won't overwrite)
+            const fd = await fs.promises.open(normalizedTestFile, 'wx');
+            await fd.write('test');
+            await fd.close();
             // Try to delete it
-            await fs.promises.unlink(testFile);
+            await fs.promises.unlink(normalizedTestFile);
         } catch (error) {
             // Provide detailed error info for debugging encoding vs permission issues
             const errorDetails = [directoryPath];
