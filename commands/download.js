@@ -799,7 +799,8 @@ class DownloadCommand extends BaseCommand {
                     args.push('-map', '0:a:0', '-vn', '-sn');
                     this.addAudioCodecArgs(args, container, sourceAudioCodec, sourceAudioBitrate);
                 } else if (downloadType === 'subs') {
-                    args.push('-map', '0:s:0', '-vn', '-an', '-c:s', 'copy');
+                    args.push('-map', '0:s:0', '-vn', '-an');
+                    this.addSubtitleCodecArgs(args, container);
                 } else {
                     // Video: copy all streams with subtitle transcoding
                     if (downloadType === 'video') {
@@ -906,6 +907,25 @@ class DownloadCommand extends BaseCommand {
                 // WebM containers: keep as webvtt (native WebM subtitle format)
                 args.push('-c:s', 'webvtt');
                 logDebug('📝 WebM container: transcoding subtitles to webvtt');
+                break;
+                
+            case 'vtt':
+                // VTT container: transcode to webvtt format (HLS playlists contain SRT, need conversion)
+                args.push('-c:s', 'webvtt');
+                logDebug('📝 VTT container: transcoding subtitles to webvtt');
+                break;
+                
+            case 'srt':
+                // SRT container: transcode to srt format (ensures proper formatting regardless of source)
+                args.push('-c:s', 'srt');
+                logDebug('📝 SRT container: transcoding subtitles to srt');
+                break;
+                
+            case 'ass':
+            case 'ssa':
+                // ASS/SSA containers: transcode to ass format (preserves styling)
+                args.push('-c:s', 'ass');
+                logDebug('📝 ASS/SSA container: transcoding subtitles to ass');
                 break;
                 
             default:
