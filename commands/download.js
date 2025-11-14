@@ -714,7 +714,7 @@ class DownloadCommand extends BaseCommand {
                     args.push(...headerArgs);
                 }
                 // Only HLS can have multiple inputs - DASH always uses single input + streamSelection
-                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-f', 'hls', '-allowed_extensions', 'ALL', '-probesize', '5M', '-analyzeduration', '10M');
+                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-skip_png_bytes', '1', '-f', 'hls', '-allowed_extensions', 'ALL', '-probesize', '5M', '-analyzeduration', '10M');
                 args.push('-i', input.url);
             });
             
@@ -751,7 +751,7 @@ class DownloadCommand extends BaseCommand {
                 args.push(...headerArgs);
             }
             if (type === 'hls') {
-                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-allowed_extensions', 'ALL', '-probesize', '5M', '-analyzeduration', '10M', '-f', 'hls');
+                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-skip_png_bytes', '1', '-allowed_extensions', 'ALL', '-probesize', '5M', '-analyzeduration', '10M', '-f', 'hls');
             } else if (type === 'dash') {
                 args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '5M', '-analyzeduration', '10M', '-dash_allow_hier_sidx', '1');
             }
