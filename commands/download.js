@@ -16,7 +16,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug, getFullEnv, getBinaryPaths, normalizeForFsWindows } = require('../utils/utils');
+const { logDebug, getFullEnv, getBinaryPaths, normalizeForFsWindows, shouldInheritHlsQueryParams } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
 // Command for downloading videos
@@ -715,6 +715,12 @@ class DownloadCommand extends BaseCommand {
                 }
                 // Only HLS can have multiple inputs - DASH always uses single input + streamSelection
                 args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-skip_png_bytes', '1', '-f', 'hls', '-allowed_extensions', 'ALL', '-probesize', '5M', '-analyzeduration', '10M');
+                
+                // Add HLS query parameter inheritance for specific domains per input
+                if (shouldInheritHlsQueryParams(input.url)) {
+                    args.push('-hls_inherit_query_params', '1');
+                }
+                
                 args.push('-i', input.url);
             });
             
@@ -752,6 +758,12 @@ class DownloadCommand extends BaseCommand {
             }
             if (type === 'hls') {
                 args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-skip_png_bytes', '1', '-allowed_extensions', 'ALL', '-probesize', '5M', '-analyzeduration', '10M', '-f', 'hls');
+                
+                // Add HLS query parameter inheritance for specific domains
+                if (shouldInheritHlsQueryParams(downloadUrl)) {
+                    args.push('-hls_inherit_query_params', '1');
+                    logDebug('🔗 Enabling HLS query parameter inheritance for URL:', downloadUrl);
+                }
             } else if (type === 'dash') {
                 args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '5M', '-analyzeduration', '10M', '-dash_allow_hier_sidx', '1');
             }

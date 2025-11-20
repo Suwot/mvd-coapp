@@ -7,7 +7,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug, getFullEnv, getBinaryPaths, TEMP_DIR } = require('../utils/utils');
+const { logDebug, getFullEnv, getBinaryPaths, shouldInheritHlsQueryParams, TEMP_DIR } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
 class GeneratePreviewCommand extends BaseCommand {
@@ -24,7 +24,7 @@ class GeneratePreviewCommand extends BaseCommand {
         if (headers && Object.keys(headers).length > 0) {
             logDebug('🔑 Using headers for preview request:', Object.keys(headers));
         }
-        
+		
         try {
             const { ffmpegPath } = getBinaryPaths();
             const previewPath = path.join(TEMP_DIR, `video-preview-${Date.now()}.jpg`);
@@ -60,6 +60,14 @@ class GeneratePreviewCommand extends BaseCommand {
                     '-probesize', '3M',
                     '-f', 'hls'
                 );
+                    
+				// Add HLS query parameter inheritance for specific domains
+				const inheritQueryParams = shouldInheritHlsQueryParams(url);
+				
+				if (inheritQueryParams) {
+					args.push('-hls_inherit_query_params', '1');
+					logDebug('🔗 Enabling HLS query parameter inheritance for URL:', url);
+				}
             } else if (type === 'dash') {
                 args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto,subfile,data', '-probesize', '3M', '-dash_allow_hier_sidx', '1');
             }

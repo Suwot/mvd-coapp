@@ -10,7 +10,7 @@
 
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug, getFullEnv, getBinaryPaths } = require('../utils/utils');
+const { logDebug, getFullEnv, getBinaryPaths, shouldInheritHlsQueryParams } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
 /**
@@ -63,6 +63,14 @@ class GetQualitiesCommand extends BaseCommand {
                 // Add format-specific options
                 if (type === 'hls') {
                     ffprobeArgs.push('-f', 'hls');
+                    
+                    // Add HLS query parameter inheritance for specific domains
+					const inheritQueryParams = shouldInheritHlsQueryParams(url);
+					
+                    if (inheritQueryParams) {
+						ffprobeArgs.push('-hls_inherit_query_params', '1');
+						logDebug('🔗 Enabling HLS query parameter inheritance for URL:', url);
+                    }
                 }
                 
                 // Add headers if provided

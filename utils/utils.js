@@ -26,10 +26,32 @@ try {
   // fallback if realpath fails (rare)
   tempDir = rawTempDir;
 }
-
 // Exported constants
 const TEMP_DIR = tempDir;
 const LOG_FILE = path.join(TEMP_DIR, 'mvdcoapp.log');
+// Domains that require HLS query parameter inheritance for proper segment access
+const HLS_INHERIT_QUERY_DOMAINS = [
+    'loom.com'
+    // Add more domains here as needed
+];
+
+/**
+ * Check if HLS query parameter inheritance should be enabled for a given URL
+ * @param {string} url - The URL to check
+ * @param {string} type - Media type ('hls', 'dash', etc.)
+ * @returns {boolean} Whether to enable hls_inherit_query_params
+ */
+function shouldInheritHlsQueryParams(url) {
+    try {
+        const urlObj = new URL(url);
+        const hostname = urlObj.hostname.toLowerCase();
+        return HLS_INHERIT_QUERY_DOMAINS.some(domain => 
+            hostname === domain || hostname.endsWith('.' + domain)
+        );
+    } catch {
+        return false;
+    }
+}
 
 function logDebug(...args) {
     try {
@@ -145,5 +167,6 @@ module.exports = {
     TEMP_DIR,
     getBinaryPaths,
     getFullEnv,
-    normalizeForFsWindows
+    normalizeForFsWindows,
+    shouldInheritHlsQueryParams
 };
