@@ -387,6 +387,64 @@ generate_checksums() {
 # PUBLISH FUNCTIONS
 # ============================================================================
 
+scan_virustotal() {
+    # Load .env file if it exists to populate environment variables
+    if [[ -f ".env" ]]; then
+        # shellcheck disable=SC1091
+        source .env
+    elif [[ -f "coapp/.env" ]]; then
+        # shellcheck disable=SC1091
+        source "coapp/.env"
+    fi
+
+    local api_key="$VT_API_KEY"
+    
+    if [[ -z "$api_key" ]]; then
+        log_warn "VirusTotal API key not found (VT_API_KEY env var)."
+        log_warn "To enable scanning, create a .env file with VT_API_KEY=your_key"
+        log_warn "See coapp/.env.example for reference."
+        return 0
+    fi
+    
+    log_info "Requesting VirusTotal scans for binaries..."
+    
+    if ! command -v curl &> /dev/null; then
+        log_warn "curl not found. Skipping VirusTotal scan."
+        return 0
+    fi
+
+    local repo=$(gh repo view --json owner,name -q '.owner.login + "/" + .name')
+    
+    # Find artifacts (dmg, exe, tar.gz)
+    local artifacts=()
+    while IFS= read -r -d '' file; do
+        artifacts+=("$file")
+    done < <(find dist -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.tar.gz" \) -print0)
+    
+    for artifact_path in "${artifacts[@]}"; do
+        local filename=$(basename "$artifact_path")
+        # Construct the "latest" download URL
+        local url="https://github.com/$repo/releases/latest/download/$filename"
+        
+        log_info "Submitting to VirusTotal: $url"
+        
+        # Send to VirusTotal
+        local response
+        response=$(curl --request POST \
+             --url https://www.virustotal.com/api/v3/urls \
+             --header "x-apikey: $api_key" \
+             --form "url=$url" \
+             --silent)
+        
+        # Simple check for success (look for "id" in response)
+        if [[ "$response" == *"\"id\":"* ]]; then
+             log_info "✓ Scan request submitted for $filename"
+        else
+             log_warn "Failed to submit $filename to VirusTotal"
+        fi
+    done
+}
+
 publish_release() {
     local version=$(node -p "require('./package.json').version")
     
@@ -459,6 +517,9 @@ publish_release() {
     if gh release upload "v$version" "${artifacts[@]}" --clobber; then
         log_info "✅ Successfully published ${#artifacts[@]} CoApp artifacts for v$version"
         log_info "📦 Release available at: https://github.com/$(gh repo view --json owner,name -q '.owner.login + "/" + .name')/releases/tag/v$version"
+        
+        # Trigger VirusTotal Scan
+        scan_virustotal
     else
         log_error "Failed to upload artifacts"
         exit 1
@@ -480,6 +541,7 @@ Commands:
   package <platform>   Create CoApp distributable package
   dist <platform>      Build + package CoApp in one step
   publish              Upload all dist/ CoApp artifacts to GitHub release
+  scan                 Trigger VirusTotal scan for existing dist/ artifacts
   version              Show CoApp version
   help                 Show this help
 
@@ -525,6 +587,9 @@ case "${1:-help}" in
         ;;
     publish)
         publish_release
+        ;;
+    scan)
+        scan_virustotal
         ;;
     help|--help|-h)
         show_help
