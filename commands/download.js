@@ -841,6 +841,9 @@ class DownloadCommand extends BaseCommand {
             }
         }
         
+        // Disable data streams globally to prevent progress reporting issues (out_time_ms=N/A)
+        args.push('-dn');
+        
         // Format-specific optimizations
         if ((type === 'hls' && downloadType === 'video') || (downloadType === 'audio' && container === 'm4a')) {
             args.push('-bsf:a', 'aac_adtstoasc');
