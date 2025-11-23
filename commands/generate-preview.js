@@ -117,6 +117,17 @@ class GeneratePreviewCommand extends BaseCommand {
                         // Process was killed (likely by cache clear) - exit silently
                         reject(new Error('killed'));
                     } else {
+                        // Check for specific "no video stream" error
+                        if (errorOutput.includes('Output file does not contain any stream')) {
+                            const error = 'No video stream found';
+                            logDebug('FFmpeg preview generation failed: No video stream detected');
+                            // Send as success:false but with specific flag so extension handles it gracefully
+                            // instead of throwing an error
+                            this.sendMessage({ success: false, noVideoStream: true });
+                            resolve({ success: false, noVideoStream: true });
+                            return;
+                        }
+
                         const error = `FFmpeg failed with code ${code}: ${errorOutput}`;
                         logDebug('FFmpeg preview generation failed:', error);
                         this.sendMessage({ error });
