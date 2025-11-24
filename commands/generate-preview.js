@@ -97,14 +97,18 @@ class GeneratePreviewCommand extends BaseCommand {
             ffmpeg.stderr.on('data', data => errorOutput += data.toString());
             
             ffmpeg.on('close', code => {
+                // Always parse stream info from stderr
+                const streamInfo = this.parseStreamInfo(errorOutput);
+                logDebug('Parsed stream info:', streamInfo);
+
                 if (code === 0) {
                     try {
                         const imageBuffer = fs.readFileSync(previewPath);
                         const dataUrl = 'data:image/jpeg;base64,' + imageBuffer.toString('base64');
                         fs.unlink(previewPath, err => err && logDebug('Failed to delete preview file:', err));
                         
-                        this.sendMessage({ previewUrl: dataUrl, success: true });
-                        resolve({ success: true, previewUrl: dataUrl });
+                        this.sendMessage({ previewUrl: dataUrl, success: true, streamInfo });
+                        resolve({ success: true, previewUrl: dataUrl, streamInfo });
                     } catch (err) {
                         const error = `Failed to read preview file: ${err.message}`;
                         logDebug(error);
@@ -117,6 +121,17 @@ class GeneratePreviewCommand extends BaseCommand {
                         // Process was killed (likely by cache clear) - exit silently
                         reject(new Error('killed'));
                     } else {
+                        // Check for specific "no video stream" error
+                        if (errorOutput.includes('Output file does not contain any stream')) {
+                            const error = 'No video stream found';
+                            logDebug('FFmpeg preview generation failed: No video stream detected');
+                            
+                            // Send as success:false but with specific flag and stream info
+                            this.sendMessage({ success: false, noVideoStream: true, streamInfo });
+                            resolve({ success: false, noVideoStream: true, streamInfo });
+                            return;
+                        }
+
                         const error = `FFmpeg failed with code ${code}: ${errorOutput}`;
                         logDebug('FFmpeg preview generation failed:', error);
                         this.sendMessage({ error });
@@ -131,6 +146,37 @@ class GeneratePreviewCommand extends BaseCommand {
                 reject(err);
             });
         });
+    }
+
+    parseStreamInfo(output) {
+        const info = {};
+
+        // Parse Video Stream, e.g. Stream #0:0(und): Video: h264 (High) (avc1 / 0x31637661), yuv420p, 1920x1080 [SAR 1:1 DAR 16:9], 4996 kb/s, 25 fps...
+        const videoMatch = output.match(/Stream #\d+:\d+(?:\([^)]+\))?: Video: ([^,]+), .*?(\d+x\d+)(?:.*?, (\d+) kb\/s)?/);
+        if (videoMatch) {
+            info.video = {
+                codec: videoMatch[1].trim().split(' ')[0], // Take first word (e.g. "h264" from "h264 (High)")
+                resolution: videoMatch[2],
+                bitrate: videoMatch[3] ? parseInt(videoMatch[3]) * 1000 : null // kb/s to bps, or null
+            };
+            
+            // Try to extract FPS separately as it's not always in the same position
+            const fpsMatch = output.match(/, (\d+(?:\.\d+)?) fps/);
+            if (fpsMatch) info.video.fps = parseFloat(fpsMatch[1]);
+        }
+
+        // Parse Audio Stream, e.g. Stream #0:1(und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 128 kb/s
+        const audioMatch = output.match(/Stream #\d+:\d+(?:\([^)]+\))?: Audio: ([^,]+), (\d+) Hz, ([^,]+)(?:, [^,]+, (\d+) kb\/s)?/);
+        if (audioMatch) {
+            info.audio = {
+                codec: audioMatch[1].trim(),
+                sampleRate: parseInt(audioMatch[2]),
+                channels: audioMatch[3].trim(),
+                bitrate: audioMatch[4] ? parseInt(audioMatch[4]) * 1000 : null // kb/s to bps, or null
+            };
+        }
+
+        return info;
     }
     
     timeoutPromise(ms) {
