@@ -178,7 +178,9 @@ class GetQualitiesCommand extends BaseCommand {
 								sizeBytes: info.format?.size,
                                 type: type,
                                 inputUrl: url,
-                                analyzeUrl: analyzeUrl
+                                analyzeUrl: analyzeUrl,
+                                // Format tags for live stream detection (Shoutcast/Icecast)
+                                tags: info.format?.tags || {}
                             };
 
                             logDebug('📊 Media analysis results:');
