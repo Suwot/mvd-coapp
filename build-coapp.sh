@@ -240,6 +240,16 @@ EOF
     rm -f "$final_dmg"
     
     log_info "Creating styled DMG with background..."
+
+    # Ensure no stale volumes are mounted from previous failed runs
+    # This prevents create-dmg from failing to apply styles (background, icons)
+    # because of mount point conflicts or stuck processes.
+    local vol_name="Max Video Downloader CoApp"
+    if [ -d "/Volumes/$vol_name" ]; then
+        log_warn "Found stale mounted volume '/Volumes/$vol_name'. Unmounting..."
+        hdiutil detach "/Volumes/$vol_name" -force || true
+        sleep 2
+    fi
     create-dmg \
         --volname "Max Video Downloader CoApp" \
         --volicon "resources/mac/AppIcon.icns" \
