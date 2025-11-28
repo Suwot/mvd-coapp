@@ -16,7 +16,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
-const { logDebug, getFullEnv, getBinaryPaths, normalizeForFsWindows, shouldInheritHlsQueryParams } = require('../utils/utils');
+const { logDebug, getFullEnv, getBinaryPaths, normalizeForFsWindows, shouldInheritHlsQueryParams, getFreeDiskSpace } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
 // Command for downloading videos
@@ -442,6 +442,50 @@ class DownloadCommand extends BaseCommand {
             // Separate paths: UI uses human-readable path, FS/FFmpeg use normalized path
             const uiOutputPath = uniqueOutput; // For UI messages, logs, display
             let fsOutputPath = uniqueOutput;   // For FS operations and FFmpeg
+            
+            // Check disk space asynchronously in background (doesn't block download start)
+            const targetDir = path.dirname(uiOutputPath);
+            
+            // Fire-and-forget space check - runs async without blocking download
+            getFreeDiskSpace(targetDir).then((freeSpace) => {
+                if (freeSpace !== null) {
+                    const ONE_GB = 1024 * 1024 * 1024;
+                    const FIVE_HUNDRED_MB = 500 * 1024 * 1024;
+                    
+                    // Scenario 1: Critical low space (< 1GB)
+                    // Warn if < 1GB left AND (file size unknown OR file size > 500MB)
+                    if (freeSpace < ONE_GB) {
+                        if (!fileSizeBytes || fileSizeBytes > FIVE_HUNDRED_MB) {
+                            logDebug(`⚠️ Critical disk space: ${freeSpace} bytes free`);
+                            this.sendMessage({
+                                command: 'feedback',
+                                downloadId: downloadId,
+                                type: 'warning',
+                                message: 'Critical low disk space (< 1GB). Download may fail.',
+                                key: 'diskSpaceCritical'
+                            }, { useMessageId: false });
+                        }
+                    } 
+                    // Scenario 2: Insufficient space for specific file (Free < Size + 20%)
+                    else if (fileSizeBytes && fileSizeBytes > 0) {
+                        const requiredSpace = fileSizeBytes * 1.2; // 20% buffer
+                        logDebug(`Disk space check: Available=${freeSpace}, Required=${requiredSpace} (Size=${fileSizeBytes} + 20%)`);
+                        
+                        if (freeSpace < requiredSpace) {
+                            logDebug(`⚠️ Insufficient disk space: Available=${freeSpace}, Required=${requiredSpace}`);
+                            this.sendMessage({
+                                command: 'feedback',
+                                downloadId: downloadId,
+                                type: 'warning',
+                                message: 'Your drive is almost full, download might be interrupted.',
+                                key: 'diskSpaceLow'
+                            }, { useMessageId: false });
+                        }
+                    }
+                }
+            }).catch((spaceCheckErr) => {
+                logDebug('Disk space check failed silently:', spaceCheckErr);
+            });
             
             // Normalize for Windows long paths (adds \\?\ prefix if >240 chars)
             if (process.platform === 'win32') {

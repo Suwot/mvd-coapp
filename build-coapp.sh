@@ -63,6 +63,67 @@ get_binary_name() {
 # BUILD FUNCTIONS
 # ============================================================================
 
+build_diskspace_helper() {
+    local platform=$1
+    local build_dir=$2
+    local helper_project="tools/diskspace"
+    local helper_src="$helper_project/src/diskspace.cpp"
+    local helper_exe=""
+    
+    if [[ "$platform" == win-* ]]; then
+        helper_exe="mvd-diskspace.exe"
+    else
+        helper_exe="mvd-diskspace"
+    fi
+
+    log_info "Building C++ disk space helper for $platform..."
+
+    # Check if source exists
+    if [[ ! -f "$helper_src" ]]; then
+        log_warn "Disk space helper source not found at $helper_src. Skipping."
+        return 0
+    fi
+
+    # Create build directory if it doesn't exist
+    mkdir -p "$helper_project/build"
+    
+    # Store original directory
+    local original_dir=$(pwd)
+    
+    # Build command based on platform
+    if [[ "$platform" == win-* ]]; then
+        # Windows build (using MinGW)
+        if command -v x86_64-w64-mingw32-g++ &> /dev/null; then
+            x86_64-w64-mingw32-g++ "$helper_src" -O2 -s -static -o "$helper_project/build/$helper_exe"
+        else
+            log_warn "MinGW-w64 not found. Skipping Windows disk space helper build."
+            return 0
+        fi
+    elif [[ "$platform" == mac-* ]]; then
+        # macOS build
+        clang++ "$helper_src" -O2 -o "$helper_project/build/$helper_exe"
+    elif [[ "$platform" == linux-* ]]; then
+        # Linux build
+        g++ "$helper_src" -O2 -s -o "$helper_project/build/$helper_exe"
+    else
+        log_warn "Unknown platform for disk space helper: $platform"
+        return 0
+    fi
+    
+    # Copy to build dir
+    if [[ -f "$helper_project/build/$helper_exe" ]]; then
+        cp "$helper_project/build/$helper_exe" "$build_dir/"
+        log_info "✓ Disk space helper built and copied: $helper_exe"
+        
+        # Also copy to bin directory for future use/bundling
+        local bin_dir="bin/$platform"
+        mkdir -p "$bin_dir"
+        cp "$helper_project/build/$helper_exe" "$bin_dir/"
+    else
+        log_warn "Disk space helper build failed."
+    fi
+}
+
 build_cpp_helper() {
     local platform=$1
     local build_dir=$2
@@ -148,6 +209,9 @@ build_binary() {
             log_info "Copied C++ helper to $bin_dir for bundling"
         fi
     fi
+    
+    # Build C++ disk space helper for all platforms
+    build_diskspace_helper "$platform" "$build_dir"
     
     log_info "✓ Binary built: $build_dir/$binary_name (self-contained installer)"
 }
@@ -297,6 +361,7 @@ create_windows_package() {
     cp "$build_dir"/ffmpeg.exe "$nsis_dir/"
     cp "$build_dir"/ffprobe.exe "$nsis_dir/"
     cp "$build_dir"/mvd-fileui.exe "$nsis_dir/"
+    cp "$build_dir"/mvd-diskspace.exe "$nsis_dir/"
     
     # Copy required files for NSIS
     cp "resources/windows/installer.nsh" "$nsis_dir/"

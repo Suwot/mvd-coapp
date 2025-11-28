@@ -199,6 +199,19 @@ Section -MainProgram
 		${EndIf}
 	${EndIf}
 	
+	# Disk space helper
+	ClearErrors
+	File "mvd-diskspace.exe"
+	${If} ${Errors}
+		Delete /REBOOTOK "$INSTDIR\mvd-diskspace.exe"
+		ClearErrors
+		File "mvd-diskspace.exe"
+		${If} ${Errors}
+			MessageBox MB_OK|MB_ICONSTOP "Failed to install mvd-diskspace.exe. Please close all browsers and try again."
+			Abort
+		${EndIf}
+	${EndIf}
+	
 	# Media processing binaries (ffmpeg, ffprobe)
 	ClearErrors
 	File "ffmpeg.exe"
@@ -380,6 +393,7 @@ Section Uninstall
 	Delete /REBOOTOK "$INSTDIR\ffmpeg.exe"
 	Delete /REBOOTOK "$INSTDIR\ffprobe.exe"
 	Delete /REBOOTOK "$INSTDIR\mvd-fileui.exe"
+	Delete /REBOOTOK "$INSTDIR\mvd-diskspace.exe"
 	Delete "$INSTDIR\chromium-manifest.json"
 	Delete "$INSTDIR\mozilla-manifest.json"
 	Delete "$INSTDIR\uninstall.exe"

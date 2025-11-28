@@ -111,7 +111,8 @@ function getBinaryPaths() {
     return {
         ffmpegPath: path.join(dir, `ffmpeg${ext}`),
         ffprobePath: path.join(dir, `ffprobe${ext}`),
-        fileuiPath: process.platform === 'win32' ? path.join(dir, `mvd-fileui${ext}`) : null
+        fileuiPath: process.platform === 'win32' ? path.join(dir, `mvd-fileui${ext}`) : null,
+        diskspacePath: path.join(dir, `mvd-diskspace${ext}`)
     };
 }
 
@@ -161,6 +162,54 @@ function normalizeForFsWindows(filePath) {
     }
 }
 
+/**
+ * Get free disk space for a specific path using native helper
+ * @param {string} targetPath - The path to check
+ * @returns {Promise<number|null>} Free space in bytes, or null if check fails
+ */
+function getFreeDiskSpace(targetPath) {
+    return new Promise((resolve) => {
+        try {
+            const { execFile } = require('child_process');
+            const { diskspacePath } = getBinaryPaths();
+            
+            if (!diskspacePath || !fs.existsSync(diskspacePath)) {
+                logDebug('⚠️ Disk space helper not found:', diskspacePath);
+                return resolve(null);
+            }
+            
+            // This avoids issues with extremely long paths or special characters.
+            let pathToCheck = path.parse(path.resolve(targetPath)).root; // e.g., "C:\" or "/"
+            
+            // On win only normalize UNC root or something unusual.
+            if (process.platform === 'win32' && !pathToCheck.startsWith('\\\\')) {
+                // Keep as is (C:\) - standard APIs handle this fine and it's safer/cleaner
+            } else {
+                pathToCheck = normalizeForFsWindows(pathToCheck);
+            }
+            
+            execFile(diskspacePath, [pathToCheck], (err, stdout) => {
+                if (err) {
+                    logDebug('Disk space helper failed:', err.message);
+                    return resolve(null);
+                }
+                
+                // Parse output: FREE_BYTES=123456789
+                const match = stdout.match(/FREE_BYTES=(\d+)/);
+                if (match && match[1]) {
+                    resolve(parseInt(match[1], 10));
+                } else {
+                    logDebug('Invalid output from disk space helper:', stdout);
+                    resolve(null);
+                }
+            });
+        } catch (error) {
+            logDebug('Error spawning disk space helper:', error);
+            resolve(null);
+        }
+    });
+}
+
 module.exports = {
     logDebug,
     LOG_FILE,
@@ -168,5 +217,6 @@ module.exports = {
     getBinaryPaths,
     getFullEnv,
     normalizeForFsWindows,
-    shouldInheritHlsQueryParams
+    shouldInheritHlsQueryParams,
+    getFreeDiskSpace
 };
