@@ -162,7 +162,7 @@ class GeneratePreviewCommand extends BaseCommand {
             
             // Try to extract FPS separately as it's not always in the same position
             const fpsMatch = output.match(/, (\d+(?:\.\d+)?) fps/);
-            if (fpsMatch) info.video.fps = parseFloat(fpsMatch[1]);
+            if (fpsMatch) info.video.fps = Math.round(parseFloat(fpsMatch[1]));
         }
 
         // Parse Audio Stream, e.g. Stream #0:1(und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 128 kb/s
