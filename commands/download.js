@@ -356,7 +356,7 @@ class DownloadCommand extends BaseCommand {
                             logDebug('Error sending SIGKILL:', killError.message);
                         }
                     }
-                }, 8000); // Wait longer since 'q' might take time to finish
+                }, 15000); // Wait longer since 'q' might take time to finish
             }            
         } catch (error) {
             logDebug('Error during download cancellation:', error);
