@@ -57,7 +57,10 @@ class GetQualitiesCommand extends BaseCommand {
                     '-v', 'quiet',
                     '-print_format', 'json',
                     '-show_streams',
-                    '-show_format'
+                    '-show_format',
+                    '-probesize', '32768',       // 32 KB max to probe
+                    '-analyzeduration', '500000', // 0.5 s duration
+                    '-rw_timeout', '5000000'      // 5 s timeout
                 ];
                 
                 // Add format-specific options
