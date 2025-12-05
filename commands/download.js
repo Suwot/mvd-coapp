@@ -997,14 +997,14 @@ class DownloadCommand extends BaseCommand {
 
     /**
      * Probe media duration using ffprobe
-     * @param {Object} ffmpegService - FFmpeg service instance
      * @param {string} url - Media URL to probe
      * @param {Object} headers - HTTP headers to use for the request
+     * @param {string} type - Media type ('hls', 'dash', 'direct')
      * @returns {Promise<number>} - Duration in seconds
      * @private
      */
-    async probeMediaDuration(url, headers = {}) {
-        logDebug('Probing media duration for:', url);
+    async probeMediaDuration(url, headers = {}, type = null) {
+        logDebug('Probing media duration for:', url, '(type:', type, ')');
         
         try {
             // Build headers argument if provided
@@ -1028,11 +1028,23 @@ class DownloadCommand extends BaseCommand {
             // Build probe command arguments
             const args = [
                 ...headerArgs,
+                '-probesize', '32768',
+                '-analyzeduration', '500000',
+                '-rw_timeout', '5000000'
+            ];
+            
+            // Add format-specific options
+            if (type === 'hls') {
+                args.push('-f', 'hls');
+                if (shouldInheritHlsQueryParams(url)) args.push('-hls_inherit_query_params', '1');
+            }
+            
+            args.push(
                 '-v', 'error',
                 '-show_entries', 'format=duration',
                 '-of', 'json',
                 url
-            ];
+            );
             
             logDebug('FFprobe command:', ffprobePath, args.join(' '));
             
@@ -1123,7 +1135,7 @@ class DownloadCommand extends BaseCommand {
                     finalDuration = null; // Ensure duration is null for livestreams
                 } else if (!isLive && (!duration || typeof duration !== 'number' || duration <= 0)) {
 					logDebug('No valid duration provided, probing media...');
-					finalDuration = await this.probeMediaDuration(downloadUrl, headers);
+					finalDuration = await this.probeMediaDuration(downloadUrl, headers, type);
 					finalDuration
 						? logDebug('Got duration from probe:', finalDuration)
 						: logDebug('Could not probe duration, will rely on FFmpeg output parsing');
