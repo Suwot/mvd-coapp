@@ -56,7 +56,9 @@ class GeneratePreviewCommand extends BaseCommand {
                     '-skip_png_bytes', '1',
                     '-allowed_extensions', 'ALL',
                     '-protocol_whitelist', 'file,http,https,tcp,tls,crypto,subfile,data',
-                    '-probesize', '3M',
+                    '-probesize', '64k',
+                    '-analyzeduration', '500000',
+                    '-max_reload', '3',
                     '-f', 'hls'
                 );
                     
@@ -68,8 +70,14 @@ class GeneratePreviewCommand extends BaseCommand {
 					logDebug('🔗 Enabling HLS query parameter inheritance for URL:', url);
 				}
             } else if (type === 'dash') {
-                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto,subfile,data', '-probesize', '3M', '-dash_allow_hier_sidx', '1');
+                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto,subfile,data', '-probesize', '64k', '-analyzeduration', '500000', '-dash_allow_hier_sidx', '1', '-max_reload', '3');
             }
+            
+            // Add global timeouts
+            args.push('-rw_timeout', '5000000');
+            
+            // Add low latency flags
+            args.push('-fflags', 'nobuffer', '-flags', 'low_delay');
             
             // Add input, timestamp, and output options
             args.push('-i', url, '-ss', timestamp, '-vf', 'scale=120:-2', '-q:v', '2', '-nostdin', '-f', 'image2', '-frames:v', '1', '-update', '1', '-y', previewPath);
