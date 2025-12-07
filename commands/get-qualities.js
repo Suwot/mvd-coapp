@@ -38,8 +38,7 @@ class GetQualitiesCommand extends BaseCommand {
         // Skip for blob URLs
         if (url.startsWith('blob:')) {
             logDebug('❌ Cannot analyze blob URLs');
-            this.sendMessage('Cannot analyze blob URLs');
-            return { error: 'Cannot analyze blob URLs' };
+            return { success: false, error: 'Cannot analyze blob URLs' };
         }
         
         // Log received headers
@@ -115,8 +114,7 @@ class GetQualitiesCommand extends BaseCommand {
                         ffprobe.kill('SIGTERM');
                     }
                     logDebug('Media analysis timeout after 30 seconds');
-                    this.sendMessage({ timeout: true, success: false });
-                    resolve({ timeout: true, success: false });
+                    resolve({ success: false, timeout: true });
                 }, 30000); // 30 second timeout for media analysis
     
                 let output = '';
@@ -337,24 +335,22 @@ class GetQualitiesCommand extends BaseCommand {
                                 }
                             }
 
-                            this.sendMessage({ streamInfo, success: true });
                             logDebug('✅ Media analysis complete with enhanced stream-based containers');
                             resolve({ success: true, streamInfo });
                             
                         } catch (error) {
                             logDebug('❌ Error parsing FFprobe output:', error);
-                            this.sendMessage('Failed to parse stream info');
-                            resolve({ error: 'Failed to parse stream info' });
+                            resolve({ success: false, error: 'Failed to parse stream info' });
                         }
                     } else {
                         // Check if process was killed (code null = killed)
                         if (code === null) {
                             // Process was killed (likely by cache clear) - exit silently
-                            resolve({ killed: true });
+                            resolve({ success: false, killed: true });
                         } else {
+                            const errMsg = errorOutput?.trim() || 'Failed to analyze video';
                             logDebug('❌ FFprobe failed with code:', code, 'Error:', errorOutput);
-                            this.sendMessage('Failed to analyze video');
-                            resolve({ error: 'Failed to analyze video' });
+                            resolve({ success: false, error: errMsg });
                         }
                     }
                 });
@@ -365,15 +361,13 @@ class GetQualitiesCommand extends BaseCommand {
                     // Don't send duplicate error if already killed by timeout
                     if (!killedByTimeout) {
                         logDebug('❌ FFprobe spawn error:', err);
-                        this.sendMessage('Failed to start FFprobe: ' + err.message);
-                        resolve({ error: 'Failed to start FFprobe: ' + err.message });
+                        resolve({ success: false, error: 'Failed to start FFprobe: ' + err.message });
                     }
                 });
             });
         } catch (err) {
             logDebug('❌ GetQualities error:', err);
-            this.sendMessage(err.message);
-            return { error: err.message };
+            return { success: false, error: err.message };
         }
     }
 }

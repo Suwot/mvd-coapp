@@ -17,8 +17,7 @@ class GeneratePreviewCommand extends BaseCommand {
         
         if (url.startsWith('blob:')) {
             const error = 'Cannot generate preview for blob URLs';
-            this.sendMessage({ error });
-            return { error };
+            return { success: false, error };
         }
         
         if (headers && Object.keys(headers).length > 0) {
@@ -77,73 +76,109 @@ class GeneratePreviewCommand extends BaseCommand {
             
             logDebug('🎬 FFmpeg preview command:', ffmpegPath, args.join(' '));
             
-            return Promise.race([
-                this.runFFmpeg(ffmpegPath, args, previewPath),
-                this.timeoutPromise(40000)
-            ]);
+            return this.runFFmpeg(ffmpegPath, args, previewPath);
         } catch (err) {
             logDebug('Preview generation error:', err);
-            this.sendMessage({ error: err.message });
-            return { error: err.message };
+            return { success: false, error: err.message };
         }
     }
     
     runFFmpeg(ffmpegPath, args, previewPath) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const ffmpeg = spawn(ffmpegPath, args, { env: getFullEnv() });
             processManager.register(ffmpeg, 'processing');
+            let killedByTimeout = false;
+            
+            // Set timeout for preview generation
+            const timeout = setTimeout(() => {
+                if (ffmpeg && !ffmpeg.killed) {
+                    logDebug('Killing FFmpeg process due to timeout');
+                    killedByTimeout = true;
+                    ffmpeg.kill('SIGTERM');
+                    processManager.unregister(ffmpeg);
+                }
+                logDebug('Preview generation timeout after 40 seconds');
+                resolve({ success: false, timeout: true });
+            }, 40000); // 40 second timeout for preview generation
             
             let errorOutput = '';
             ffmpeg.stderr.on('data', data => errorOutput += data.toString());
             
-            ffmpeg.on('close', code => {
+            ffmpeg.on('close', (code, signal) => {
+                clearTimeout(timeout);
+                
+                // If killed by timeout, don't process results
+                if (killedByTimeout) {
+                    logDebug('FFmpeg process was killed by timeout, skipping result processing');
+                    return; // Promise already resolved by timeout handler
+                }
+                
                 // Always parse stream info from stderr
-                const streamInfo = this.parseStreamInfo(errorOutput);
+                const streamInfo = errorOutput.length > 0 ? this.parseStreamInfo(errorOutput) : {};
                 logDebug('Parsed stream info:', streamInfo);
 
                 if (code === 0) {
                     try {
-                        const imageBuffer = fs.readFileSync(previewPath);
-                        const dataUrl = 'data:image/jpeg;base64,' + imageBuffer.toString('base64');
-                        fs.unlink(previewPath, err => err && logDebug('Failed to delete preview file:', err));
-                        
-                        this.sendMessage({ previewUrl: dataUrl, success: true, streamInfo });
-                        resolve({ success: true, previewUrl: dataUrl, streamInfo });
+                        if (fs.existsSync(previewPath)) {
+                            const imageBuffer = fs.readFileSync(previewPath);
+                            const dataUrl = 'data:image/jpeg;base64,' + imageBuffer.toString('base64');
+                            fs.unlink(previewPath, err => err && logDebug('Failed to delete preview file:', err));
+                            
+                            resolve({ success: true, previewUrl: dataUrl, streamInfo });
+                        } else {
+                            const error = 'Preview file was not created';
+                            logDebug(error);
+                            resolve({ success: false, error });
+                        }
                     } catch (err) {
                         const error = `Failed to read preview file: ${err.message}`;
                         logDebug(error);
-                        this.sendMessage({ error });
-                        reject(new Error(error));
+                        // Try to delete orphan file
+                        if (fs.existsSync(previewPath)) {
+                            fs.unlink(previewPath, err => err && logDebug('Failed to delete orphan preview file:', err));
+                        }
+                        resolve({ success: false, error });
                     }
                 } else {
-                    // Check if process was killed (code null = killed)
-                    if (code === null) {
-                        // Process was killed (likely by cache clear) - exit silently
-                        reject(new Error('killed'));
+                    // Check if process was killed by signal
+                    if (signal) {
+                        resolve({ success: false, killed: true });
                     } else {
                         // Check for specific "no video stream" error
                         if (errorOutput.includes('Output file does not contain any stream')) {
                             const error = 'No video stream found';
                             logDebug('FFmpeg preview generation failed: No video stream detected');
                             
-                            // Send as success:false but with specific flag and stream info
-                            this.sendMessage({ success: false, noVideoStream: true, streamInfo });
+                            // Delete any orphan file
+                            if (fs.existsSync(previewPath)) {
+                                fs.unlink(previewPath, err => err && logDebug('Failed to delete orphan preview file:', err));
+                            }
+                            
                             resolve({ success: false, noVideoStream: true, streamInfo });
                             return;
                         }
 
                         const error = `FFmpeg failed with code ${code}: ${errorOutput}`;
                         logDebug('FFmpeg preview generation failed:', error);
-                        this.sendMessage({ error });
-                        reject(new Error(error));
+                        
+                        // Delete any orphan file
+                        if (fs.existsSync(previewPath)) {
+                            fs.unlink(previewPath, err => err && logDebug('Failed to delete orphan preview file:', err));
+                        }
+                        
+                        resolve({ success: false, error });
                     }
                 }
             });
             
             ffmpeg.on('error', err => {
-                logDebug('FFmpeg process error:', err);
-                this.sendMessage({ error: err.message });
-                reject(err);
+                clearTimeout(timeout);
+                
+                // Don't send duplicate error if already killed by timeout
+                if (!killedByTimeout) {
+                    logDebug('FFmpeg process error:', err);
+                    resolve({ success: false, error: err.message });
+                }
             });
         });
     }
@@ -177,16 +212,6 @@ class GeneratePreviewCommand extends BaseCommand {
         }
 
         return info;
-    }
-    
-    timeoutPromise(ms) {
-        return new Promise(resolve => {
-            setTimeout(() => {
-                logDebug(`Preview generation timeout after ${ms/1000} seconds`);
-                this.sendMessage({ timeout: true, success: false });
-                resolve({ timeout: true, success: false });
-            }, ms);
-        });
     }
 }
 

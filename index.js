@@ -301,6 +301,7 @@ async function processMessage(request, messagingService) {
             const command = new CommandClass(messagingService);
             command.setMessageId(requestId);
             const result = await command.execute(request);
+            messagingService.sendMessage(result, requestId);
             return result;
         }
     } catch (err) {
