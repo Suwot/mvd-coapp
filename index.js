@@ -9,6 +9,8 @@
  * - Bridges browser extension with system capabilities
  */
 
+const os = require('os');
+
 // Import core modules
 const MessagingService = require('./lib/messaging');
 const { logDebug, TEMP_DIR, LOG_FILE } = require('./utils/utils');
@@ -225,6 +227,8 @@ async function bootstrap() {
             ffmpegVersion: '7.1.1', // Default bundled version
             arch: process.arch,
             platform: process.platform,
+            osRelease: os.release(),
+            osVersion: os.release(), // Note: os.version() doesn't exist, using release as fallback
             pid: process.pid,
             lastValidation: Date.now(),
             logsFolder: TEMP_DIR,
