@@ -487,20 +487,44 @@ class DownloadCommand extends BaseCommand {
                 logDebug('Disk space check failed silently:', spaceCheckErr);
             });
             
-            // Normalize for Windows long paths (adds \\?\ prefix if >240 chars)
+            // Ensure directory exists and is writable
+            try {
+                const outputDir = path.dirname(uniqueOutput);
+                
+                // Check if directory is a Windows drive root (e.g., E:\, D:\)
+                const isWindowsDriveRoot = process.platform === 'win32' && /^[A-Za-z]:[\\/]?$/.test(outputDir);
+                
+                if (!isWindowsDriveRoot) {
+                    // Regular directory: create if it doesn't exist
+                    fs.mkdirSync(outputDir, { recursive: true });
+                } else if (!fs.existsSync(outputDir)) {
+                    // Drive root should exist, but safety check
+                    throw { code: 'ENOENT', message: 'Drive does not exist' };
+                }
+                
+                // Test actual write access (catches read-only directories and permission issues)
+                fs.accessSync(outputDir, fs.constants.W_OK);
+            } catch (dirError) {
+                logDebug('Directory validation error:', dirError);
+                
+                // Send structured error to extension
+                const errorKey = dirError.code === 'ENOENT' ? 'folderNotFound' : 'directoryNotWritable';
+                this.sendMessage({
+                    command: 'download-error',
+                    downloadId,
+                    key: errorKey,
+                    message: `Cannot access output directory: ${path.dirname(uniqueOutput)}`
+                }, { useMessageId: false });
+                
+                throw dirError;
+            }
+            
+            // Normalize for Windows long paths after directory validation (adds \\?\ prefix if needed)
             if (process.platform === 'win32') {
                 fsOutputPath = normalizeForFsWindows(uniqueOutput);
                 if (fsOutputPath !== uniqueOutput) {
                     logDebug('Using normalized long-path for FS operations:', fsOutputPath);
                 }
-            }
-            
-            try {
-                fs.mkdirSync(path.dirname(fsOutputPath), { recursive: true }); // create directory tree
-                fs.accessSync(path.dirname(fsOutputPath), fs.constants.W_OK); // check write access
-            } catch (dirError) {
-                logDebug('Directory creation/access error:', dirError);
-                throw new Error(`Cannot create or access output directory: ${path.dirname(uiOutputPath)}. ${dirError.message}`);
             }
             
             // Send resolved filename to extension immediately (use uiOutputPath for display)
@@ -548,7 +572,15 @@ class DownloadCommand extends BaseCommand {
             
         } catch (err) {
             logDebug('Download error:', err);
-            // Just throw the error - the promise rejection will handle it
+            
+            // Send structured error message to extension (prevents UI hanging)
+            this.sendMessage({
+                command: 'download-error',
+                downloadId,
+                key: err.key || 'unknownError',
+                message: err.message || 'Download failed'
+            }, { useMessageId: false });
+            
             throw err;
         }
     }

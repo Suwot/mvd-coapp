@@ -131,24 +131,57 @@ class FileSystemCommand extends BaseCommand {
     async chooseDirectory(params) {
         const { title = 'Choose Directory', defaultPath } = params;
 
-        const command = await this.getChooseDirectoryCommand(title, defaultPath);
-        const output = await this.executeCommand(command.cmd, command.args, true);
+        let selectedPath = null;
 
-        // Parse output to get selected path
-        const selectedPath = this.parseDialogOutput(output, 'directory');
+        // Try primary picker first
+        try {
+            const command = await this.getChooseDirectoryCommand(title, defaultPath);
+            const output = await this.executeCommand(command.cmd, command.args, true);
+            selectedPath = this.parseDialogOutput(output, 'directory');
 
-        if (!selectedPath) {
-            const error = new Error('No directory selected');
-            error.key = 'noDirectorySelected';
-            throw error;
+            if (!selectedPath) {
+                // Dialog succeeded but returned empty path (shouldn't happen normally)
+                // This is a system error, not a user cancellation
+                const error = new Error('Dialog succeeded but returned no path');
+                error.key = 'pickerCommandFailed';
+                throw error;
+            }
+
+            // Test write permissions on user selection
+            // If this fails, it's a post-dialog error (user picked invalid folder)
+            // → Don't fallback, just return the error with key for UI to show toast
+            await this.testWritePermissions(selectedPath);
+            const result = { success: true, operation: 'chooseDirectory', selectedPath };
+            this.sendMessage(result);
+            return result;
+        } catch (pickerError) {
+            // System-level failures: only fallback if picker itself is broken (user never had a chance to select)
+            if (pickerError.key === 'fileDialogHelperNotFound' || pickerError.key === 'pickerCommandFailed') {
+                logDebug(`Picker system failed (${pickerError.key}), applying fallback as last resort`);
+                
+                const fallbackPath = await this.findWritableFallbackFolder();
+                if (!fallbackPath) {
+                    const error = new Error('No writable folder found. Please ensure you have write permissions in your home directory.');
+                    error.key = 'noWritableFolderFound';
+                    throw error;
+                }
+
+                logDebug(`Using fallback folder due to picker system failure: ${fallbackPath}`);
+                const result = { 
+                    success: true, 
+                    operation: 'chooseDirectory', 
+                    selectedPath: fallbackPath,
+                    isAutoFallback: true,  // Flag for UI to explain why fallback was used
+                    key: pickerError.key   // Propagate original error key so UI knows what happened
+                };
+                this.sendMessage(result);
+                return result;
+            }
+
+            // All other errors (user cancelled, post-dialog validation errors, etc.)
+            logDebug(`Picker error (${pickerError.key}): ${pickerError.message}`);
+            throw pickerError;
         }
-
-        // Check write permissions with actual file creation test
-        await this.testWritePermissions(selectedPath);
-
-        const result = { success: true, operation: 'chooseDirectory', selectedPath };
-        this.sendMessage(result);
-        return result;
     }
 
     /**
@@ -165,8 +198,9 @@ class FileSystemCommand extends BaseCommand {
         const selectedPath = this.parseDialogOutput(output, 'file');
 
         if (!selectedPath) {
-            const error = new Error('No save location selected');
-            error.key = 'noSaveLocationSelected';
+            // Dialog succeeded but returned empty path (shouldn't happen normally) – actual fail, not a cancellation
+            const error = new Error('Dialog succeeded but returned no path');
+            error.key = 'pickerCommandFailed';
             throw error;
         }
 
@@ -351,17 +385,18 @@ return POSIX path of chosenFile`;
                     // Operations that capture output (dialogs) need valid exit codes
                     if (code === 0) {
                         resolve(output.trim());
+                    } else if (code === 1) {
+                        // Exit code 1 specifically means user cancelled the dialog (not an error, so no UI key)
+                        const cancelError = new Error('Dialog cancelled by user');
+                        cancelError.code = 1;
+                        reject(cancelError);
                     } else {
-                        // Map exit codes to meaningful error messages for dialogs
-                        let errorMsg = errorOutput || '';
-                        if (code === 1) {
-                            if (errorMsg.trim() === '') {
-                                errorMsg = 'Dialog cancelled or failed';
-                            }
-                        } else {
-                            errorMsg = `Command failed with code ${code}: ${errorMsg}`;
-                        }
-                        reject(new Error(errorMsg));
+                        // Other exit codes indicate actual picker/command failure
+                        const errorMsg = errorOutput || `Command failed with code ${code}`;
+                        const failError = new Error(errorMsg);
+                        failError.key = 'pickerCommandFailed';
+                        failError.code = code;
+                        reject(failError);
                     }
                 } else {
                     // For file operations, check exit code to ensure success
@@ -391,7 +426,10 @@ return POSIX path of chosenFile`;
             });
 
             childProcess.on('error', (error) => {
-                reject(new Error(`Failed to execute command: ${error.message}`));
+                // Spawn errors are treated as pickerCommandFailed for consistency
+                const failError = new Error(`Failed to execute command: ${error.message}`);
+                failError.key = 'pickerCommandFailed';
+                reject(failError);
             });
         });
     }
@@ -473,14 +511,75 @@ return POSIX path of chosenFile`;
     }
 	
 	// Get file stats with Windows long-path normalization
-    _normalizedStat(path) {
-        const normalized = normalizeForFsWindows(path);
+    _normalizedStat(filePath) {
+        const normalized = normalizeForFsWindows(filePath);
         return fs.statSync(normalized);
     }
 
 	// Check if file exists with Windows long-path normalization
-	fileExists(path) { try { this._normalizedStat(path); return true; } catch { return false; } }
-	isDirectory(path) { try { return this._normalizedStat(path).isDirectory(); } catch { return false; } }
+	fileExists(filePath) { try { this._normalizedStat(filePath); return true; } catch { return false; } }
+	isDirectory(filePath) { try { return this._normalizedStat(filePath).isDirectory(); } catch { return false; } }
+
+    /**
+     * Find a writable fallback folder from a prioritized candidate list
+     * Tests each candidate by attempting to create and delete a test file
+     * @returns {Promise<string|null>} First writable folder path, or null if none found
+     */
+    async findWritableFallbackFolder() {
+        const os = require('os');
+        
+        // Build candidate list in order of preference
+        const candidates = [
+            // 1) Downloads/MAX Video Downloader (most user-friendly)
+            path.join(os.homedir(), 'Downloads', 'MAX Video Downloader'),
+            // 2) Temp/MAX Video Downloader (practically always writable)
+            path.join(os.tmpdir(), 'MAX Video Downloader'),
+        ];
+
+        for (const candidate of candidates) {
+            try {
+                // Ensure directory exists (create if needed)
+                await this.ensureDirectoryExists(candidate);
+                
+                // Test write permissions by creating and deleting a test file
+                await this.testWritePermissions(candidate);
+                
+                // If we got here, this folder is writable
+                logDebug(`Found writable fallback folder: ${candidate}`);
+                return candidate;
+            } catch (error) {
+                logDebug(`Fallback candidate failed (${candidate}): ${error.message}`);
+                // Continue to next candidate
+            }
+        }
+
+        // No writable folder found in fallback chain
+        logDebug('No writable fallback folder found in entire candidate chain');
+        return null;
+    }
+
+    /**
+     * Ensure directory exists, creating it recursively if needed
+     * Uses the same Windows long-path normalization as other file operations
+     * @param {string} directoryPath - Path to ensure exists
+     */
+    async ensureDirectoryExists(directoryPath) {
+        const normalizedPath = normalizeForFsWindows(directoryPath);
+        try {
+            // Check if already exists
+            if (this.isDirectory(directoryPath)) {
+                return;
+            }
+            // Create recursively (mkdir -p equivalent)
+            await fs.promises.mkdir(normalizedPath, { recursive: true });
+            logDebug(`Created directory: ${directoryPath}`);
+        } catch (error) {
+            // Re-throw with more context
+            const err = new Error(`Failed to create directory ${directoryPath}: ${error.message}`);
+            err.code = error.code;
+            throw err;
+        }
+    }
 
     /**
      * Test write permissions by actually trying to create and delete a test file
