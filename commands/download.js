@@ -1062,8 +1062,9 @@ class DownloadCommand extends BaseCommand {
                     
                     // Build probe args inline (dumb worker pattern)
                     const probeArgs = [
-                        '-v', 'quiet',
-                        '-print_format', 'json',
+                        '-v', 'error',
+						'-hide_banner',
+                        '-of', 'json',
                         '-show_format',
                         '-probesize', '32768',
                         '-analyzeduration', '500000',
@@ -1080,7 +1081,7 @@ class DownloadCommand extends BaseCommand {
                         if (headerLines) probeArgs.push('-headers', headerLines + '\r\n');
                     }
                     
-                    probeArgs.push(downloadUrl);
+                    probeArgs.push('-i', downloadUrl);
                     
                     const probeResult = await new GetQualitiesCommand().execute({ args: probeArgs });
                     
@@ -1171,11 +1172,12 @@ class DownloadCommand extends BaseCommand {
                 if (fileExists) {
                     // Build local probe args inline (dumb worker pattern)
                     const localProbeArgs = [
-                        '-v', 'quiet',
-                        '-print_format', 'json',
+                        '-v', 'error',
+						'-hide_banner',
+                        '-of', 'json',
                         '-show_streams',
                         '-show_format',
-                        fsOutputPath
+                    	'-i', fsOutputPath
                     ];
                     
                     const probeResult = await new GetQualitiesCommand().execute({ args: localProbeArgs });
