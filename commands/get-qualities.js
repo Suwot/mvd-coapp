@@ -19,6 +19,82 @@ const processManager = require('../lib/process-manager');
 class GetQualitiesCommand extends BaseCommand {
     /**
      * Execute the getQualities command
+     * @param {Object} params Command parameters
+     * @param {string[]} [params.args] Raw FFprobe arguments (New "Dumb Worker" Mode)
+     * @param {number} [params.timeoutMs=30000] Timeout in ms for raw mode (default 30s)
+     * @param {string} [params.url] Video URL to analyze (Legacy Mode)
+     * @returns {Promise<Object>} Raw output or Structured media information
+     */
+    async execute(params) {
+        // Mode 1: Dumb Worker (Raw Args) – extension v0.19.0+
+        // If 'args' are provided, we just run FFprobe with them and return raw output.
+        if (params.args && Array.isArray(params.args)) {
+            return this.executeRawProbe(params.args, params.timeoutMs);
+        }
+
+        // Mode 2: Legacy Smart Worker (Parsed Info)
+        // If no args, use the legacy logic to build args + parse output.
+        return this.examineMedia(params);
+    }
+
+    /**
+     * Raw FFprobe execution wrapper
+     * @param {string[]} args - Array of command line arguments for ffprobe
+     * @param {number} [timeoutMs=30000] - Timeout in milliseconds
+     * @returns {Promise<Object>} - { success, code, stdout, stderr, error, timeout }
+     */
+    async executeRawProbe(args, timeoutMs = 30000) {
+        logDebug('🔧 Executing raw FFprobe command:', args.join(' '));
+        
+        const { ffprobePath } = getBinaryPaths();
+        
+        return new Promise((resolve) => {
+            const ffprobe = spawn(ffprobePath, args, { env: getFullEnv() });
+            processManager.register(ffprobe, 'processing');
+            
+            let stdout = '';
+            let stderr = '';
+            let killedByTimeout = false;
+
+            // Safety timeout
+            const timeout = setTimeout(() => {
+                if (ffprobe && !ffprobe.killed) {
+                    logDebug(`Killing FFprobe process due to timeout (${timeoutMs}ms)`);
+                    killedByTimeout = true;
+                    ffprobe.kill('SIGTERM');
+                }
+                resolve({ success: false, timeout: true, error: `Process timed out after ${timeoutMs}ms` });
+            }, timeoutMs);
+
+            ffprobe.stdout.on('data', (d) => stdout += d.toString());
+            ffprobe.stderr.on('data', (d) => stderr += d.toString());
+
+            ffprobe.on('close', (code, signal) => {
+                clearTimeout(timeout);
+                
+                if (killedByTimeout) return;
+
+                logDebug(`FFprobe exited with code ${code}`);
+                
+                resolve({
+                    success: code === 0,
+                    code,
+                    stdout,
+                    stderr,
+                    error: code !== 0 ? stderr.trim() : null
+                });
+            });
+
+            ffprobe.on('error', (err) => {
+                clearTimeout(timeout);
+                if (!killedByTimeout) {
+                    resolve({ success: false, error: err.message });
+                }
+            });
+        });
+    }
+    /**
+	 * LEGACY method – to be removed
      * Reusable media analysis method - can be called internally or via execute
      * @param {Object} params Analysis parameters
      * @param {string} params.url Video URL to analyze

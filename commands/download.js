@@ -1028,16 +1028,6 @@ class DownloadCommand extends BaseCommand {
         }
     }
 
-    /**
-     * Probe media duration using ffprobe
-     * @param {string} url - Media URL to probe
-     * @param {Object} headers - HTTP headers to use for the request
-     * @param {string} type - Media type ('hls', 'dash', 'direct')
-     * @returns {Promise<number>} - Duration in seconds
-     * @private
-     */
-
-    
     // Executes FFmpeg with progress tracking
     executeFFmpegWithProgress({
         ffmpegPath,
@@ -1057,8 +1047,6 @@ class DownloadCommand extends BaseCommand {
         return new Promise((resolve, _reject) => {
             // Use an IIFE to handle async operations properly
             (async () => {
-                // Initialize quality checker for probing
-                const qualityChecker = new GetQualitiesCommand();
                 
                 // Track spawn retry attempts
                 let spawnRetried = false;
@@ -1071,18 +1059,44 @@ class DownloadCommand extends BaseCommand {
                     finalDuration = null; // Ensure duration is null for livestreams
                 } else if (!isLive && (!duration || typeof duration !== 'number' || duration <= 0)) {
 					logDebug('No valid duration provided, probing media...');
-                    const probeResult = await qualityChecker.examineMedia({
-                        url: downloadUrl,
-                        type,
-                        headers
-                    });
                     
-					if (probeResult?.success && probeResult?.streamInfo?.duration) {
-                        finalDuration = probeResult.streamInfo.duration;
-                        logDebug('Got duration from probe:', finalDuration);
-                    } else {
-                        logDebug('Could not probe duration, will rely on FFmpeg output parsing');
+                    // Build probe args inline (dumb worker pattern)
+                    const probeArgs = [
+                        '-v', 'quiet',
+                        '-print_format', 'json',
+                        '-show_format',
+                        '-probesize', '32768',
+                        '-analyzeduration', '500000',
+                        '-rw_timeout', '5000000'
+                    ];
+                    
+                    if (type === 'hls') {
+                        probeArgs.push('-f', 'hls');
+                        if (shouldInheritHlsQueryParams(downloadUrl)) probeArgs.push('-hls_inherit_query_params', '1');
                     }
+                    
+                    if (headers && Object.keys(headers).length > 0) {
+                        const headerLines = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join('\r\n');
+                        if (headerLines) probeArgs.push('-headers', headerLines + '\r\n');
+                    }
+                    
+                    probeArgs.push(downloadUrl);
+                    
+                    const probeResult = await new GetQualitiesCommand().execute({ args: probeArgs });
+                    
+                    if (probeResult.success && probeResult.stdout) {
+                        try {
+                            const probeData = JSON.parse(probeResult.stdout);
+                            if (probeData?.format?.duration) {
+                                finalDuration = parseFloat(probeData.format.duration);
+                                logDebug('Got duration from probe:', finalDuration);
+                            }
+                        } catch (e) {
+                            logDebug('Failed to parse duration probe JSON:', e.message);
+                        }
+                    }
+                    
+                    if (!finalDuration) logDebug('Could not probe duration, will rely on FFmpeg output parsing');
 				}
             
                 // Initialize progress state
@@ -1151,21 +1165,28 @@ class DownloadCommand extends BaseCommand {
                 const fileExists = fs.existsSync(fsOutputPath); // Note: fs paths handled by node
                 
                 // Final file verification: Probe the file if it exists
-                let probeResult = null;
+                let probeData = null;
                 let hasValidStreams = false;
                 
                 if (fileExists) {
-                    const qualityChecker = new GetQualitiesCommand();
-                    probeResult = await qualityChecker.examineMedia({
-                        url: fsOutputPath,
-                        isLocal: true,
-                        customArgs: [] // Future proofing: could inject specific args here
-                    });
+                    // Build local probe args inline (dumb worker pattern)
+                    const localProbeArgs = [
+                        '-v', 'quiet',
+                        '-print_format', 'json',
+                        '-show_streams',
+                        '-show_format',
+                        fsOutputPath
+                    ];
                     
-                    // Valid if success AND (has video OR has audio OR has subtitles)
-                    if (probeResult?.success && probeResult?.streamInfo) {
-                        const info = probeResult.streamInfo;
-                        hasValidStreams = info.hasVideo || info.hasAudio || info.hasSubs;
+                    const probeResult = await new GetQualitiesCommand().execute({ args: localProbeArgs });
+                    
+                    if (probeResult.success && probeResult.stdout) {
+                        try {
+                            probeData = JSON.parse(probeResult.stdout);
+                            hasValidStreams = probeData?.streams?.length > 0;
+                        } catch (e) {
+                            logDebug('Failed to parse local probe JSON:', e.message);
+                        }
                     }
                 }
                 
@@ -1190,13 +1211,13 @@ class DownloadCommand extends BaseCommand {
                 }
                 
                 // Enhanced downloadStats using probe data if available
-                    const rawDuration = probeResult?.streamInfo?.duration || progressState.finalProcessedTime || progressState.duration || null;
+                    const rawDuration = probeData?.format?.duration || progressState.finalProcessedTime || progressState.duration || null;
                     const downloadStats = {
                         ...(progressState.finalStats || {}),
                         finalDuration: rawDuration != null ? parseFloat(rawDuration) : null,
                         downloadDurationSeconds: downloadDuration,
-                        // Add probe details
-                        probe: probeResult?.success ? probeResult.streamInfo : null
+                        // Attach full raw probe object as requested
+                        probe: probeData || null
                     };
                 
                 // Single decision ladder - Logic with probe validation
