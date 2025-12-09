@@ -18,6 +18,7 @@ const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
 const { logDebug, getFullEnv, getBinaryPaths, normalizeForFsWindows, shouldInheritHlsQueryParams, getFreeDiskSpace } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
+const GetQualitiesCommand = require('./get-qualities');
 
 // Command for downloading videos
 class DownloadCommand extends BaseCommand {
@@ -1035,107 +1036,7 @@ class DownloadCommand extends BaseCommand {
      * @returns {Promise<number>} - Duration in seconds
      * @private
      */
-    async probeMediaDuration(url, headers = {}, type = null) {
-        logDebug('Probing media duration for:', url, '(type:', type, ')');
-        
-        try {
-            // Build headers argument if provided
-            let headerArgs = [];
-            if (headers && Object.keys(headers).length > 0) {
-                const headerLines = Object.entries(headers)
-                    .map(([key, value]) => `${key}: ${value}`)
-                    .join('\r\n');
-                
-                if (headerLines) {
-                    headerArgs = ['-headers', headerLines + '\r\n'];
-                    logDebug('🔑 Using headers for probe request');
-                }
-            }
-            
-            // Get path to ffprobe
-            const { ffprobePath } = getBinaryPaths();
-            
-            logDebug('Using FFprobe path:', ffprobePath);
-            
-            // Build probe command arguments
-            const args = [
-                ...headerArgs,
-                '-probesize', '32768',
-                '-analyzeduration', '500000',
-                '-rw_timeout', '5000000'
-            ];
-            
-            // Add format-specific options
-            if (type === 'hls') {
-                args.push('-f', 'hls');
-                if (shouldInheritHlsQueryParams(url)) args.push('-hls_inherit_query_params', '1');
-            }
-            
-            args.push(
-                '-v', 'error',
-                '-show_entries', 'format=duration',
-                '-of', 'json',
-                url
-            );
-            
-            logDebug('FFprobe command:', ffprobePath, args.join(' '));
-            
-            // Execute ffprobe as a child process
-            const probeStartTime = Date.now();
-            const { stdout } = await new Promise((resolve, reject) => {
-                const ffprobe = spawn(ffprobePath, args, { 
-                    env: getFullEnv(),
-                    windowsVerbatimArguments: process.platform === 'win32'
-                });
-                processManager.register(ffprobe);
-                
-                logDebug('FFprobe process started with PID:', ffprobe.pid);
-                
-                let stdout = '';
-                let stderr = '';
-                
-                ffprobe.stdout.on('data', (data) => {
-                    stdout += data.toString();
-                });
-                
-                ffprobe.stderr.on('data', (data) => {
-                    stderr += data.toString();
-                });
-                
-                ffprobe.on('close', (code, signal) => {
-                    const probeDuration = Date.now() - probeStartTime;
-                    logDebug(`FFprobe completed in ${probeDuration}ms with code ${code}${signal ? ` (signal: ${signal})` : ''}`);
-                    
-                    if (code === 0) {
-                        resolve({ stdout, stderr });
-                    } else {
-                        reject(new Error(`FFprobe exited with code ${code}${signal ? ` (signal: ${signal})` : ''}: ${stderr}`));
-                    }
-                });
-                
-                ffprobe.on('error', (err) => {
-                    const probeDuration = Date.now() - probeStartTime;
-                    logDebug(`FFprobe spawn error after ${probeDuration}ms:`, err.message);
-                    reject(err);
-                });
-            });
-            
-            // Parse the JSON output
-            const result = JSON.parse(stdout);
-            const duration = parseFloat(result?.format?.duration);
-            
-            if (isNaN(duration) || duration <= 0) {
-                logDebug('Invalid duration returned from probe:', result);
-                return null;
-            }
-            
-            logDebug(`Probed duration: ${duration} seconds`);
-            return duration;
-        } catch (error) {
-            logDebug('Error probing media duration:', error);
-            return null;
-        }
-    }
+
     
     // Executes FFmpeg with progress tracking
     executeFFmpegWithProgress({
@@ -1156,6 +1057,9 @@ class DownloadCommand extends BaseCommand {
         return new Promise((resolve, _reject) => {
             // Use an IIFE to handle async operations properly
             (async () => {
+                // Initialize quality checker for probing
+                const qualityChecker = new GetQualitiesCommand();
+                
                 // Track spawn retry attempts
                 let spawnRetried = false;
                 
@@ -1167,10 +1071,18 @@ class DownloadCommand extends BaseCommand {
                     finalDuration = null; // Ensure duration is null for livestreams
                 } else if (!isLive && (!duration || typeof duration !== 'number' || duration <= 0)) {
 					logDebug('No valid duration provided, probing media...');
-					finalDuration = await this.probeMediaDuration(downloadUrl, headers, type);
-					finalDuration
-						? logDebug('Got duration from probe:', finalDuration)
-						: logDebug('Could not probe duration, will rely on FFmpeg output parsing');
+                    const probeResult = await qualityChecker.examineMedia({
+                        url: downloadUrl,
+                        type,
+                        headers
+                    });
+                    
+					if (probeResult?.success && probeResult?.streamInfo?.duration) {
+                        finalDuration = probeResult.streamInfo.duration;
+                        logDebug('Got duration from probe:', finalDuration);
+                    } else {
+                        logDebug('Could not probe duration, will rely on FFmpeg output parsing');
+                    }
 				}
             
                 // Initialize progress state
@@ -1220,7 +1132,7 @@ class DownloadCommand extends BaseCommand {
                     this.processFFmpegOutput(output, progressState);
                 });
             
-            ffmpeg.on('close', (code, signal) => {
+            ffmpeg.on('close', async (code, signal) => {
                 // Guard against multiple event handling
                 if (hasError) return;
                 
@@ -1236,22 +1148,40 @@ class DownloadCommand extends BaseCommand {
                 // Get minimal state needed for decision (use normalized FS path for all file ops)
                 const userCanceled = downloadEntry?.wasCanceled || false;
                 const isLivestream = progressState.isLive || false;
-                const fileExists = fs.existsSync(fsOutputPath);
-                const fileSize = fileExists ? fs.statSync(fsOutputPath).size : 0;
+                const fileExists = fs.existsSync(fsOutputPath); // Note: fs paths handled by node
                 
-                // Configurable thresholds
-                const MIN_MEDIA_BYTES = 50 * 1024; // 50KB for media files
-                const MIN_SUBS_BYTES = 100; // 100 bytes for subtitle files
+                // Final file verification: Probe the file if it exists
+                let probeResult = null;
+                let hasValidStreams = false;
+                
+                if (fileExists) {
+                    const qualityChecker = new GetQualitiesCommand();
+                    probeResult = await qualityChecker.examineMedia({
+                        url: fsOutputPath,
+                        isLocal: true,
+                        customArgs: [] // Future proofing: could inject specific args here
+                    });
+                    
+                    // Valid if success AND (has video OR has audio OR has subtitles)
+                    if (probeResult?.success && probeResult?.streamInfo) {
+                        const info = probeResult.streamInfo;
+                        hasValidStreams = info.hasVideo || info.hasAudio || info.hasSubs;
+                    }
+                }
+                
+                // Configurable thresholds for bare minimum validity (fallback if probe fails but file exists?)
+                // Actually, if probe fails on a local file, it's garbage. We will rely on probe.
                 
                 // Ground truth signals
                 const completed = (code === 0 && signal === null);
                 const wasKilled = (signal !== null); // SIGTERM/SIGKILL 
                 const isGracefulCancel = (code === 255 && signal === null); // q/Ctrl-C style
                 const wasCanceled = userCanceled || isGracefulCancel || wasKilled;
-                const bigEnough = subsOnly ? fileSize >= MIN_SUBS_BYTES : fileSize >= MIN_MEDIA_BYTES;
+                
+                const validFile = hasValidStreams; // Replaces previous size-based 'bigEnough' check
                 
                 logDebug(`FFmpeg process (PID: ${downloadEntry?.process?.pid}) terminated after ${downloadDuration}s:`, 
-                    { code, signal, completed, wasKilled, isGracefulCancel, wasCanceled, fileExists, fileSize, bigEnough, type });
+                    { code, signal, completed, wasKilled, isGracefulCancel, wasCanceled, fileExists, validFile });
                 
                 // Try to parse final stats from last stderr chunk if not already done
                 if (!progressState.finalStats || Object.keys(progressState.finalStats).length === 0) {
@@ -1259,20 +1189,22 @@ class DownloadCommand extends BaseCommand {
                     this.parseFinalStats(progressState.lastChunk, progressState);
                 }
                 
-                // Enhanced downloadStats
-                    const rawDuration = progressState.finalProcessedTime || progressState.duration || null;
+                // Enhanced downloadStats using probe data if available
+                    const rawDuration = probeResult?.streamInfo?.duration || progressState.finalProcessedTime || progressState.duration || null;
                     const downloadStats = {
                         ...(progressState.finalStats || {}),
-                        finalDuration: rawDuration != null ? Math.round(rawDuration) : null,
-                        downloadDurationSeconds: downloadDuration
+                        finalDuration: rawDuration != null ? parseFloat(rawDuration) : null,
+                        downloadDurationSeconds: downloadDuration,
+                        // Add probe details
+                        probe: probeResult?.success ? probeResult.streamInfo : null
                     };
                 
-                // Single decision ladder - simplified rules
+                // Single decision ladder - Logic with probe validation
                 let outcome, message, shouldPreserveFile = false;
                 
-                if (wasCanceled && fileExists && bigEnough) {
-                    // Canceled with valid file above threshold = always preserve and send as success
-                    const isPartial = !isLivestream;
+                if (wasCanceled && fileExists && validFile) {
+                    // Canceled with valid streamable file = always preserve and send as success
+                    const isPartial = !isLivestream; // Livestreams are "success" even if canceled, others are "partial"
                     outcome = { command: 'download-success', success: true, isPartial };
                     message = isLivestream ? 'Livestream recording completed successfully (user stopped)' : 'Partial download completed (file preserved)';
                     shouldPreserveFile = true;
@@ -1281,13 +1213,13 @@ class DownloadCommand extends BaseCommand {
                     outcome = { command: 'download-canceled', success: false };
                     message = 'Download was canceled by user';
                     shouldPreserveFile = false;
-                } else if (completed && bigEnough) {
+                } else if (completed && validFile) {
                     // Process completed successfully with valid file
                     outcome = { command: 'download-success', success: true, isPartial: false };
                     message = 'Download completed successfully';
                     shouldPreserveFile = true;
                 } else {
-                    // All other cases = error (includes completed but too small, crashes, etc.)
+                    // All other cases = error (includes completed but empty/invalid files)
                     outcome = { command: 'download-error', success: false };
                     
                     // Check for specific errors
@@ -1305,6 +1237,8 @@ class DownloadCommand extends BaseCommand {
                     } else if (hasPermissionError) {
                         message = `Windows Controlled Folder Access blocked writing to this folder. Allow the app in Security settings or choose another folder.`;
                         outcome.errorType = 'SAVE_DIR_BLOCKED';
+                    } else if (fileExists && !validFile) {
+                         message = 'Download completed but file appears invalid (no streams found)';
                     } else {
                         message = completed ? 'Download completed but output file is too small or empty' : 
                                  `Process exited with code ${code}${signal ? ` (signal: ${signal})` : ''}`;
