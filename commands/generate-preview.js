@@ -75,8 +75,7 @@ class GeneratePreviewCommand extends BaseCommand {
             // Add robustness flags
             args.push(
                 '-fflags', '+discardcorrupt+genpts',
-                '-err_detect', 'ignore_err',
-                '-skip_frame', 'nokey'
+                '-err_detect', 'ignore_err'
             );
             
             // Add global timeouts
@@ -90,6 +89,7 @@ class GeneratePreviewCommand extends BaseCommand {
                 '-sn',
                 '-vf', 'scale=120:-2',
                 '-q:v', '2',
+				'-strict', 'unofficial',
                 '-nostdin',
                 '-f', 'image2',
                 '-frames:v', '1',
