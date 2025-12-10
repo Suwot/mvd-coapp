@@ -54,13 +54,8 @@ class RunToolCommand extends BaseCommand {
     async execute(params) {
         const { tool, args, timeoutMs, job } = params;
         
-        if (!tool || !['ffprobe', 'ffmpeg'].includes(tool)) {
-            return { success: false, error: `Invalid tool: ${tool}. Must be 'ffprobe' or 'ffmpeg'.` };
-        }
-        
-        if (!args || !Array.isArray(args)) {
-            return { success: false, error: 'args must be an array of strings' };
-        }
+        if (!tool || !['ffprobe', 'ffmpeg'].includes(tool)) return { success: false, error: `Invalid tool: ${tool}. Must be 'ffprobe' or 'ffmpeg'.` };
+        if (!args || !Array.isArray(args)) 					return { success: false, error: 'args must be an array of strings' };
         
         // Get tool path
         const { ffprobePath, ffmpegPath } = getBinaryPaths();
@@ -94,10 +89,8 @@ class RunToolCommand extends BaseCommand {
         }
         
         // Build shell-reproducible command for debugging
-        const quoteForShell = (arg) => `'${String(arg).replace(/'/g, `'\\''`)}'`;
+        const quoteForShell = (arg) => `'${String(arg).replace(/'/g, `'\'"\'"\''`)}'`;
         const shellCmd = [toolPath, ...finalArgs].map(quoteForShell).join(' ');
-
-        // Log for manual reproducibility
         logDebug(`👨‍💻 [runTool] shell command: ${shellCmd}`);
         
         return new Promise((resolve) => {
