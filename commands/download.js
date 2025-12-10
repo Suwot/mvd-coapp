@@ -18,7 +18,7 @@ const { spawn } = require('child_process');
 const BaseCommand = require('./base-command');
 const { logDebug, getFullEnv, getBinaryPaths, normalizeForFsWindows, shouldInheritHlsQueryParams, getFreeDiskSpace } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
-const GetQualitiesCommand = require('./get-qualities');
+const RunToolCommand = require('./run-tool');
 
 // Command for downloading videos
 class DownloadCommand extends BaseCommand {
@@ -1083,7 +1083,12 @@ class DownloadCommand extends BaseCommand {
                     
                     probeArgs.push('-i', downloadUrl);
                     
-                    const probeResult = await new GetQualitiesCommand().execute({ args: probeArgs });
+                    const probeResult = await new RunToolCommand().execute({
+                        tool: 'ffprobe',
+                        args: probeArgs,
+                        timeoutMs: 30000,
+                        job: { kind: 'probe' }
+                    });
                     
                     if (probeResult.success && probeResult.stdout) {
                         try {
@@ -1165,84 +1170,51 @@ class DownloadCommand extends BaseCommand {
                 const isLivestream = progressState.isLive || false;
                 const fileExists = fs.existsSync(fsOutputPath); // Note: fs paths handled by node
                 
-                // Final file verification: Probe the file if it exists
-                let probeData = null;
-                let hasValidStreams = false;
-                
-                if (fileExists) {
-                    // Build local probe args inline (dumb worker pattern)
-                    const localProbeArgs = [
-                        '-v', 'error',
-						'-hide_banner',
-                        '-of', 'json',
-                        '-show_streams',
-                        '-show_format',
-                    	'-i', fsOutputPath
-                    ];
-                    
-                    const probeResult = await new GetQualitiesCommand().execute({ args: localProbeArgs });
-                    
-                    if (probeResult.success && probeResult.stdout) {
-                        try {
-                            probeData = JSON.parse(probeResult.stdout);
-                            hasValidStreams = probeData?.streams?.length > 0;
-                        } catch (e) {
-                            logDebug('Failed to parse local probe JSON:', e.message);
-                        }
-                    }
-                }
-                
-                // Configurable thresholds for bare minimum validity (fallback if probe fails but file exists?)
-                // Actually, if probe fails on a local file, it's garbage. We will rely on probe.
-                
-                // Ground truth signals
+                // Ground truth signals - rely on FFmpeg exit code and file existence, not probing
                 const completed = (code === 0 && signal === null);
                 const wasKilled = (signal !== null); // SIGTERM/SIGKILL 
                 const isGracefulCancel = (code === 255 && signal === null); // q/Ctrl-C style
                 const wasCanceled = userCanceled || isGracefulCancel || wasKilled;
                 
-                const validFile = hasValidStreams; // Replaces previous size-based 'bigEnough' check
-                
                 logDebug(`FFmpeg process (PID: ${downloadEntry?.process?.pid}) terminated after ${downloadDuration}s:`, 
-                    { code, signal, completed, wasKilled, isGracefulCancel, wasCanceled, fileExists, validFile });
+                    { code, signal, completed, wasKilled, isGracefulCancel, wasCanceled, fileExists });
                 
+                // Try to parse final stats from last stderr chunk if not already done
                 // Try to parse final stats from last stderr chunk if not already done
                 if (!progressState.finalStats || Object.keys(progressState.finalStats).length === 0) {
                     logDebug('Final stats not parsed yet, attempting to parse from last stderr chunk on exit');
                     this.parseFinalStats(progressState.lastChunk, progressState);
                 }
                 
-                // Enhanced downloadStats using probe data if available
-                    const rawDuration = probeData?.format?.duration || progressState.finalProcessedTime || progressState.duration || null;
-                    const downloadStats = {
-                        ...(progressState.finalStats || {}),
-                        finalDuration: rawDuration != null ? parseFloat(rawDuration) : null,
-                        downloadDurationSeconds: downloadDuration,
-                        // Attach full raw probe object as requested
-                        probe: probeData || null
-                    };
+                // Enhanced downloadStats using existing parsing logic
+                const rawDuration = progressState.finalProcessedTime || progressState.duration || null;
+                const downloadStats = {
+                    ...(progressState.finalStats || {}),
+                    finalDuration: rawDuration != null ? parseFloat(rawDuration) : null,
+                    downloadDurationSeconds: downloadDuration
+                };
                 
-                // Single decision ladder - Logic with probe validation
+                // Single decision ladder - Logic based on FFmpeg exit code and file existence
                 let outcome, message, shouldPreserveFile = false;
                 
-                if (wasCanceled && fileExists && validFile) {
-                    // Canceled with valid streamable file = always preserve and send as success
+                if (wasCanceled && fileExists) {
+                    // Canceled with existing file = preserve (could be partial or full)
                     const isPartial = !isLivestream; // Livestreams are "success" even if canceled, others are "partial"
                     outcome = { command: 'download-success', success: true, isPartial };
                     message = isLivestream ? 'Livestream recording completed successfully (user stopped)' : 'Partial download completed (file preserved)';
                     shouldPreserveFile = true;
                 } else if (wasCanceled) {
-                    // Canceled without valid file = true cancellation
+                    // Canceled without file = true cancellation
                     outcome = { command: 'download-canceled', success: false };
                     message = 'Download was canceled by user';
                     shouldPreserveFile = false;
-                } else if (completed && validFile) {
-                    // Process completed successfully with valid file
+                } else if (completed && fileExists) {
+                    // FFmpeg completed successfully and file exists
                     outcome = { command: 'download-success', success: true, isPartial: false };
                     message = 'Download completed successfully';
                     shouldPreserveFile = true;
                 } else {
-                    // All other cases = error (includes completed but empty/invalid files)
+                    // All other cases = error (includes completed but no file, or exit with non-zero code)
                     outcome = { command: 'download-error', success: false };
                     
                     // Check for specific errors
@@ -1260,10 +1232,8 @@ class DownloadCommand extends BaseCommand {
                     } else if (hasPermissionError) {
                         message = `Windows Controlled Folder Access blocked writing to this folder. Allow the app in Security settings or choose another folder.`;
                         outcome.errorType = 'SAVE_DIR_BLOCKED';
-                    } else if (fileExists && !validFile) {
-                         message = 'Download completed but file appears invalid (no streams found)';
                     } else {
-                        message = completed ? 'Download completed but output file is too small or empty' : 
+                        message = completed ? 'Download completed but output file was not created or is empty' : 
                                  `Process exited with code ${code}${signal ? ` (signal: ${signal})` : ''}`;
                     }
                     

@@ -6,6 +6,16 @@
  * - Maps technical stream data to user-friendly quality labels
  * - Returns structured quality options to the extension UI
  * - Handles various streaming protocol formats
+ * 
+ * ⚠️ LEGACY COMMAND – To be removed after extension v0.19.0+ migration
+ * 
+ * This command implements the old smart-worker pattern where the CoApp
+ * builds FFprobe arguments, runs the process, and parses JSON output.
+ * 
+ * New flow (v0.19.0+): Use `runTool` command for dumb-worker pattern
+ * where extension controls args and parsing.
+ * 
+ * Current implementation supports both flows temporarily for backward compatibility.
  */
 
 const { spawn } = require('child_process');
@@ -13,108 +23,7 @@ const BaseCommand = require('./base-command');
 const { logDebug, getFullEnv, getBinaryPaths, shouldInheritHlsQueryParams } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
-/**
- * Command for analyzing media streams and getting available qualities
- */
 class GetQualitiesCommand extends BaseCommand {
-    /**
-     * Execute the getQualities command
-     * @param {Object} params Command parameters
-     * @param {string[]} [params.args] Raw FFprobe arguments (New "Dumb Worker" Mode)
-     * @param {number} [params.timeoutMs=30000] Timeout in ms for raw mode (default 30s)
-     * @param {Object} [params.job] Job metadata (optional for probe)
-     * @param {string} [params.url] Video URL to analyze (Legacy Mode)
-     * @returns {Promise<Object>} Raw output or Structured media information
-     */
-    async execute(params) {
-        // Mode 1: Dumb Worker (Raw Args) – extension v0.19.0+
-        // If 'args' are provided, we just run FFprobe with them and return raw output.
-        if (params.args && Array.isArray(params.args)) {
-            return this.executeRawProbe(params.args, params.timeoutMs, params.job);
-        }
-
-        // Mode 2: Legacy Smart Worker (Parsed Info)
-        // If no args, use the legacy logic to build args + parse output.
-        return this.examineMedia(params);
-    }
-
-    /**
-     * Raw FFprobe execution wrapper (Dumb Worker)
-     * Returns unified RawProcessResult schema
-     * @param {string[]} args - Array of command line arguments for ffprobe
-     * @param {number} [timeoutMs=30000] - Timeout in milliseconds
-     * @param {Object} [job] - Job metadata (optional for probe)
-     * @param {string} [job.kind='probe'] - Job kind identifier
-     * @returns {Promise<Object>} RawProcessResult: { success, code, signal, stdout, stderr, timeout?, error? }
-     */
-    async executeRawProbe(args, timeoutMs = 30000, job = null) {
-        logDebug('🔧 Executing raw FFprobe command:', args.join(' '));
-        if (job) logDebug('📋 Job metadata:', job);
-        
-        const { ffprobePath } = getBinaryPaths();
-        
-        return new Promise((resolve) => {
-            const ffprobe = spawn(ffprobePath, args, { env: getFullEnv() });
-            processManager.register(ffprobe, 'processing');
-            
-            let stdout = '';
-            let stderr = '';
-            let killedByTimeout = false;
-
-            // Safety timeout
-            const timeoutHandle = setTimeout(() => {
-                if (ffprobe && !ffprobe.killed) {
-                    logDebug(`Killing FFprobe process due to timeout (${timeoutMs}ms)`);
-                    killedByTimeout = true;
-                    ffprobe.kill('SIGTERM');
-                    processManager.unregister(ffprobe);
-                }
-                resolve({
-                    success: false,
-                    code: null,
-                    signal: 'SIGTERM',
-                    stdout,
-                    stderr,
-                    timeout: true,
-                    error: `Process timed out after ${timeoutMs}ms`
-                });
-            }, timeoutMs);
-
-            ffprobe.stdout.on('data', (d) => stdout += d.toString());
-            ffprobe.stderr.on('data', (d) => stderr += d.toString());
-
-            ffprobe.on('close', (code, signal) => {
-                clearTimeout(timeoutHandle);
-                
-                if (killedByTimeout) return;
-
-                logDebug(`FFprobe exited with code ${code}${signal ? `, signal ${signal}` : ''}`);
-                
-                resolve({
-                    success: code === 0,
-                    code,
-                    signal: signal || null,
-                    stdout,
-                    stderr,
-                    error: code !== 0 ? (stderr.trim() || `Process exited with code ${code}`) : null
-                });
-            });
-
-            ffprobe.on('error', (err) => {
-                clearTimeout(timeoutHandle);
-                if (!killedByTimeout) {
-                    resolve({
-                        success: false,
-                        code: null,
-                        signal: null,
-                        stdout,
-                        stderr,
-                        error: err.message
-                    });
-                }
-            });
-        });
-    }
     /**
 	 * LEGACY method – to be removed
      * Reusable media analysis method - can be called internally or via execute
@@ -127,7 +36,7 @@ class GetQualitiesCommand extends BaseCommand {
      * @param {string[]} [params.customArgs] Additional custom FFprobe arguments
      * @returns {Promise<Object>} Structured media information
      */
-    async examineMedia(params) {
+    async execute(params) {
         const { 
             url, 
             type, 

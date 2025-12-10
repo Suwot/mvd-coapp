@@ -137,6 +137,7 @@ const DownloadCommand = require('./commands/download');
 const GetQualitiesCommand = require('./commands/get-qualities');
 const GeneratePreviewCommand = require('./commands/generate-preview');
 const FileSystemCommand = require('./commands/file-system');
+const RunToolCommand = require('./commands/run-tool');
 const processManager = require('./lib/process-manager');
 
 // Operation-based keep-alive management
@@ -234,7 +235,7 @@ async function bootstrap() {
             logsFolder: TEMP_DIR,
             logFile: LOG_FILE,
             logFileSize: logFileSize,
-            capabilities: ['download', 'get-qualities', 'generate-preview', 'file-system', 'kill-processing']
+            capabilities: ['download', 'get-qualities', 'generate-preview', 'file-system', 'kill-processing', 'run-tool']
         };
         messagingService.sendMessage(connectionInfo);
         
@@ -256,6 +257,7 @@ const commands = {
     'getQualities': GetQualitiesCommand,
     'generatePreview': GeneratePreviewCommand,
     'fileSystem': FileSystemCommand,
+    'runTool': RunToolCommand,
     'kill-processing': {
         execute: async (params, requestId, messagingService) => {
             logDebug('Received kill-processing command - terminating analysis processes');
@@ -280,7 +282,7 @@ async function processMessage(request, messagingService) {
     const commandType = request.command;
     
     // Track long-running operations
-    const isLongRunningOperation = ['download', 'getQualities', 'generatePreview', 'fileSystem'].includes(commandType);
+    const isLongRunningOperation = ['download', 'getQualities', 'generatePreview', 'fileSystem', 'runTool'].includes(commandType);
     
     if (isLongRunningOperation) {
         incrementOperations();

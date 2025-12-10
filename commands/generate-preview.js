@@ -12,148 +12,27 @@ const processManager = require('../lib/process-manager');
 
 class GeneratePreviewCommand extends BaseCommand {
     /**
+     * ⚠️ LEGACY COMMAND – To be removed after extension v0.19.0+ migration
+     * 
+     * This command implements the old smart-worker pattern where the CoApp
+     * builds FFmpeg arguments, runs the process, and parses output.
+     * 
+     * New flow (v0.19.0+): Use `runTool` command for dumb-worker pattern
+     * where extension controls args and parsing.
+     * 
+     * Current implementation supports both flows temporarily for backward compatibility.
+     */
+
+    /**
      * Execute the generatePreview command
      * @param {Object} params Command parameters
-     * @param {string[]} [params.args] Raw FFmpeg arguments (New "Dumb Worker" Mode)
-     * @param {number} [params.timeoutMs=40000] Timeout in ms for raw mode
-     * @param {Object} [params.job] Job metadata
-     * @param {string} [params.job.kind='preview'] Job kind identifier
-     * @param {string} [params.job.mode='imageDataUrl'] Output mode
-     * @param {Object} [params.job.output] Output configuration
-     * @param {string} [params.job.output.format='jpg'] Image format
-     * @param {boolean} [params.job.output.temp=true] Delete after reading
-     * @param {string} [params.url] Video URL (Legacy Mode)
-     * @returns {Promise<Object>} Raw output or preview result
+     * @param {string} params.url Video URL
+     * @param {Object} [params.headers] HTTP headers
+     * @param {number} [params.duration] Video duration in seconds
+     * @param {string} [params.type] Media type: 'hls', 'dash', 'direct'
+     * @returns {Promise<Object>} Preview result
      */
     async execute(params) {
-        // Mode 1: Dumb Worker (Raw Args) – extension v0.19.0+
-        if (params.args && Array.isArray(params.args)) {
-            return this.runFFmpegRaw(params.args, params.timeoutMs, params.job);
-        }
-
-        // Mode 2: Legacy Smart Worker
-        // Remove after transition to extension v0.19.0+
-        return this.executeLegacy(params);
-    }
-
-    /**
-     * Raw FFmpeg execution wrapper (Dumb Worker)
-     * Returns unified RawProcessResult schema with preview-specific data
-     * @param {string[]} args - Array of command line arguments for ffmpeg (without output path)
-     * @param {number} [timeoutMs=40000] - Timeout in milliseconds
-     * @param {Object} [job] - Job metadata
-     * @returns {Promise<Object>} RawProcessResult: { success, code, signal, stdout, stderr, timeout?, error?, data? }
-     */
-    async runFFmpegRaw(args, timeoutMs = 40000, job = null) {
-        logDebug('🔧 Executing raw FFmpeg preview command:', args.join(' '));
-        if (job) logDebug('📋 Job metadata:', job);
-        
-        const { ffmpegPath } = getBinaryPaths();
-        
-        // Determine output handling based on job.output
-        const output = job?.output || { format: 'jpg', temp: true };
-        const format = output.format || 'jpg';
-        const shouldCleanup = output.temp !== false;
-        const mode = job?.mode || 'imageDataUrl';
-        
-        // Generate temp output path (worker owns this, not extension)
-        const previewPath = path.join(TEMP_DIR, `preview-${Date.now()}.${format}`);
-        
-        // Append output args to the provided args array
-        const finalArgs = [...args, '-y', previewPath];
-        
-        return new Promise((resolve) => {
-            const ffmpeg = spawn(ffmpegPath, finalArgs, { env: getFullEnv() });
-            processManager.register(ffmpeg, 'processing');
-            
-            let stdout = '';
-            let stderr = '';
-            let killedByTimeout = false;
-
-            const timeoutHandle = setTimeout(() => {
-                if (ffmpeg && !ffmpeg.killed) {
-                    logDebug(`Killing FFmpeg process due to timeout (${timeoutMs}ms)`);
-                    killedByTimeout = true;
-                    ffmpeg.kill('SIGTERM');
-                    processManager.unregister(ffmpeg);
-                }
-                resolve({
-                    success: false,
-                    code: null,
-                    signal: 'SIGTERM',
-                    stdout,
-                    stderr,
-                    timeout: true,
-                    error: `Process timed out after ${timeoutMs}ms`
-                });
-            }, timeoutMs);
-
-            ffmpeg.stdout.on('data', (d) => stdout += d.toString());
-            ffmpeg.stderr.on('data', (d) => stderr += d.toString());
-
-            ffmpeg.on('close', (code, signal) => {
-                clearTimeout(timeoutHandle);
-                
-                if (killedByTimeout) return;
-
-                logDebug(`FFmpeg exited with code ${code}${signal ? `, signal ${signal}` : ''}`);
-                
-                // Build preview-specific data payload based on job.mode
-                let previewUrl = null;
-                if (code === 0 && mode === 'imageDataUrl' && fs.existsSync(previewPath)) {
-                    try {
-                        const imageBuffer = fs.readFileSync(previewPath);
-                        const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-                        previewUrl = `data:${mimeType};base64,` + imageBuffer.toString('base64');
-                        
-                        // Cleanup if job.output.temp is true
-                        if (shouldCleanup) {
-                            fs.unlink(previewPath, err => err && logDebug('Failed to delete preview file:', err));
-                        }
-                    } catch (e) {
-                        logDebug('Failed to read preview file:', e.message);
-                    }
-                }
-                
-                // Parse stream info from stderr
-                const streamInfo = stderr.length > 0 ? this.parseStreamInfo(stderr) : {};
-                
-                resolve({
-                    success: code === 0,
-                    code,
-                    signal: signal || null,
-                    stdout,
-                    stderr,
-                    error: code !== 0 ? (stderr.trim() || `Process exited with code ${code}`) : null,
-                    // Preview-specific data payload
-                    data: {
-                        previewUrl,
-                        streamInfo,
-                        noVideoStream: stderr.includes('Output file does not contain any stream')
-                    }
-                });
-            });
-
-            ffmpeg.on('error', (err) => {
-                clearTimeout(timeoutHandle);
-                if (!killedByTimeout) {
-                    resolve({
-                        success: false,
-                        code: null,
-                        signal: null,
-                        stdout,
-                        stderr,
-                        error: err.message
-                    });
-                }
-            });
-        });
-    }
-
-    /**
-	 * LEGACY method – to be removed after transition to extension v0.19.0+
-     */
-    async executeLegacy(params) {
         const { url, headers = {}, duration, type } = params;
         logDebug('Generating preview for video:', url);
         
