@@ -22,6 +22,7 @@ class GetQualitiesCommand extends BaseCommand {
      * @param {Object} params Command parameters
      * @param {string[]} [params.args] Raw FFprobe arguments (New "Dumb Worker" Mode)
      * @param {number} [params.timeoutMs=30000] Timeout in ms for raw mode (default 30s)
+     * @param {Object} [params.job] Job metadata (optional for probe)
      * @param {string} [params.url] Video URL to analyze (Legacy Mode)
      * @returns {Promise<Object>} Raw output or Structured media information
      */
@@ -29,7 +30,7 @@ class GetQualitiesCommand extends BaseCommand {
         // Mode 1: Dumb Worker (Raw Args) – extension v0.19.0+
         // If 'args' are provided, we just run FFprobe with them and return raw output.
         if (params.args && Array.isArray(params.args)) {
-            return this.executeRawProbe(params.args, params.timeoutMs);
+            return this.executeRawProbe(params.args, params.timeoutMs, params.job);
         }
 
         // Mode 2: Legacy Smart Worker (Parsed Info)
@@ -38,13 +39,17 @@ class GetQualitiesCommand extends BaseCommand {
     }
 
     /**
-     * Raw FFprobe execution wrapper
+     * Raw FFprobe execution wrapper (Dumb Worker)
+     * Returns unified RawProcessResult schema
      * @param {string[]} args - Array of command line arguments for ffprobe
      * @param {number} [timeoutMs=30000] - Timeout in milliseconds
-     * @returns {Promise<Object>} - { success, code, stdout, stderr, error, timeout }
+     * @param {Object} [job] - Job metadata (optional for probe)
+     * @param {string} [job.kind='probe'] - Job kind identifier
+     * @returns {Promise<Object>} RawProcessResult: { success, code, signal, stdout, stderr, timeout?, error? }
      */
-    async executeRawProbe(args, timeoutMs = 30000) {
+    async executeRawProbe(args, timeoutMs = 30000, job = null) {
         logDebug('🔧 Executing raw FFprobe command:', args.join(' '));
+        if (job) logDebug('📋 Job metadata:', job);
         
         const { ffprobePath } = getBinaryPaths();
         
@@ -57,38 +62,55 @@ class GetQualitiesCommand extends BaseCommand {
             let killedByTimeout = false;
 
             // Safety timeout
-            const timeout = setTimeout(() => {
+            const timeoutHandle = setTimeout(() => {
                 if (ffprobe && !ffprobe.killed) {
                     logDebug(`Killing FFprobe process due to timeout (${timeoutMs}ms)`);
                     killedByTimeout = true;
                     ffprobe.kill('SIGTERM');
+                    processManager.unregister(ffprobe);
                 }
-                resolve({ success: false, timeout: true, error: `Process timed out after ${timeoutMs}ms` });
+                resolve({
+                    success: false,
+                    code: null,
+                    signal: 'SIGTERM',
+                    stdout,
+                    stderr,
+                    timeout: true,
+                    error: `Process timed out after ${timeoutMs}ms`
+                });
             }, timeoutMs);
 
             ffprobe.stdout.on('data', (d) => stdout += d.toString());
             ffprobe.stderr.on('data', (d) => stderr += d.toString());
 
             ffprobe.on('close', (code, signal) => {
-                clearTimeout(timeout);
+                clearTimeout(timeoutHandle);
                 
                 if (killedByTimeout) return;
 
-                logDebug(`FFprobe exited with code ${code}`);
+                logDebug(`FFprobe exited with code ${code}${signal ? `, signal ${signal}` : ''}`);
                 
                 resolve({
                     success: code === 0,
                     code,
+                    signal: signal || null,
                     stdout,
                     stderr,
-                    error: code !== 0 ? stderr.trim() : null
+                    error: code !== 0 ? (stderr.trim() || `Process exited with code ${code}`) : null
                 });
             });
 
             ffprobe.on('error', (err) => {
-                clearTimeout(timeout);
+                clearTimeout(timeoutHandle);
                 if (!killedByTimeout) {
-                    resolve({ success: false, error: err.message });
+                    resolve({
+                        success: false,
+                        code: null,
+                        signal: null,
+                        stdout,
+                        stderr,
+                        error: err.message
+                    });
                 }
             });
         });
