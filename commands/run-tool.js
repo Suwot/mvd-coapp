@@ -41,152 +41,173 @@ const BaseCommand = require('./base-command');
 const { getBinaryPaths, getFullEnv, TEMP_DIR, logDebug } = require('../utils/utils');
 const processManager = require('../lib/process-manager');
 
-class RunToolCommand extends BaseCommand {
-    /**
-     * Execute the runTool command
-     * @param {Object} params Command parameters
-     * @param {string} params.tool Tool to run: 'ffprobe' | 'ffmpeg'
-     * @param {string[]} params.args Command line arguments
-     * @param {number} [params.timeoutMs] Timeout in milliseconds
-     * @param {Object} [params.job] Job metadata
-     * @returns {Promise<Object>} RawProcessResult
-     */
-    async execute(params) {
-        const { tool, args, timeoutMs, job } = params;
-        
-        if (!tool || !['ffprobe', 'ffmpeg'].includes(tool)) return { success: false, error: `Invalid tool: ${tool}. Must be 'ffprobe' or 'ffmpeg'.` };
-        if (!args || !Array.isArray(args)) 					return { success: false, error: 'args must be an array of strings' };
-        
-        // Get tool path
-        const { ffprobePath, ffmpegPath } = getBinaryPaths();
-        const toolPath = tool === 'ffprobe' ? ffprobePath : ffmpegPath;
-        
-        // Determine timeout based on job kind
-        const defaultTimeout = job?.kind === 'preview' ? 40000 : 30000;
-        const timeout = timeoutMs || defaultTimeout;
-        
-        return this.spawnTool(toolPath, args, timeout, job);
+const DEFAULT_TIMEOUT_MS = 30000;
+const PREVIEW_TIMEOUT_MS = 40000;
+
+const quoteForShell = (arg) => `'${String(arg).replace(/'/g, `'\'"\'"\''`)}'`; // eslint-disable-line no-useless-escape
+
+function safeInvoke(callback, ...args) {
+    if (typeof callback !== 'function') return;
+    try {
+        callback(...args);
+    } catch (err) {
+        logDebug('spawnTool callback failed:', err?.message ? err.message : err);
     }
-    
-    /**
-     * Universal tool spawner
-     * @param {string} toolPath Path to the tool binary
-     * @param {string[]} args Command line arguments
-     * @param {number} timeoutMs Timeout in milliseconds
-     * @param {Object} [job] Job metadata
-     * @returns {Promise<Object>} RawProcessResult
-     */
-    async spawnTool(toolPath, args, timeoutMs, job = null) {
-        // Handle output file generation for preview jobs
-        let outputPath = null;
-        let finalArgs = [...args];
-        
-        if (job?.output && job?.kind === 'preview') {
-            const format = job.output.format || 'jpg';
-            outputPath = path.join(TEMP_DIR, `preview-${Date.now()}.${format}`);
-            finalArgs.push('-y', outputPath);
-            logDebug(`📁 [runTool] Output path: ${outputPath}`);
-        }
-        
-        // Build shell-reproducible command for debugging
-        const quoteForShell = (arg) => `'${String(arg).replace(/'/g, `'\'"\'"\''`)}'`;
-        const shellCmd = [toolPath, ...finalArgs].map(quoteForShell).join(' ');
-        logDebug(`👨‍💻 [runTool] shell command: ${shellCmd}`);
-        
-        return new Promise((resolve) => {
-            const proc = spawn(toolPath, finalArgs, { env: getFullEnv() });
-            processManager.register(proc, 'processing');
-            
-            let stdout = '';
-            let stderr = '';
-            let killedByTimeout = false;
-            
-            const timeoutHandle = setTimeout(() => {
-                if (proc && !proc.killed) {
-                    logDebug(`⏱️ [runTool] Timeout (${timeoutMs}ms), killing process`);
+}
+
+async function spawnTool(toolPath, args, options = {}) {
+    const {
+        timeoutMs,
+        job = null,
+        env = getFullEnv(),
+        onStdout,
+        onStderr,
+        onExit,
+        onSpawn,
+        registrationType = 'processing',
+        onComplete
+    } = options;
+
+    let finalArgs = [...args];
+    let outputPath = null;
+
+    if (job?.output && job?.kind === 'preview') {
+        const format = job.output.format || 'jpg';
+        outputPath = path.join(TEMP_DIR, `preview-${Date.now()}.${format}`);
+        finalArgs.push('-y', outputPath);
+        logDebug(`📁 [spawnTool] Output path: ${outputPath}`);
+    }
+
+    const shellCmd = [toolPath, ...finalArgs].map(quoteForShell).join(' ');
+    logDebug(`👨‍💻 [spawnTool] shell command: ${shellCmd}`);
+
+    const fallbackTimeout = job?.kind === 'preview' ? PREVIEW_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+    const effectiveTimeout = typeof timeoutMs === 'number' ? timeoutMs : fallbackTimeout;
+    const hasTimeout = typeof effectiveTimeout === 'number' && effectiveTimeout > 0;
+
+    return new Promise((resolve) => {
+        const process = spawn(toolPath, finalArgs, { env });
+        processManager.register(process, registrationType);
+        safeInvoke(onSpawn, process);
+
+        let stdout = '';
+        let stderr = '';
+        let killedByTimeout = false;
+        let timeoutHandle = null;
+
+        const cleanupTimeout = () => {
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+            }
+        };
+
+        if (hasTimeout) {
+            timeoutHandle = setTimeout(() => {
+                if (process && !process.killed) {
+                    logDebug(`⏱️ [spawnTool] Timeout (${effectiveTimeout}ms), killing process`);
                     killedByTimeout = true;
-                    proc.kill('SIGTERM');
-                    processManager.unregister(proc);
-                }
-                resolve({
-                    success: false,
-                    code: null,
-                    signal: 'SIGTERM',
-                    stdout,
-                    stderr,
-                    timeout: true
-                });
-            }, timeoutMs);
-            
-            proc.stdout.on('data', (d) => stdout += d.toString());
-            proc.stderr.on('data', (d) => stderr += d.toString());
-            
-            proc.on('close', (code, signal) => {
-                clearTimeout(timeoutHandle);
-                
-                if (killedByTimeout) return;
-                
-                logDebug(`✅ [runTool] Exited with code ${code}${signal ? `, signal ${signal}` : ''}`);
-                
-                // Build result
-                // Note: We do NOT set 'error' for non-zero exit codes - it's reserved for spawn errors only.
-                // Setting 'error' would cause nativeHostService to reject the promise,
-                // preventing the extension from processing stderr for stream info.
-                const result = {
-                    success: code === 0,
-                    code,
-                    signal: signal || null,
-                    stdout,
-                    stderr
-                };
-                
-                // Handle job-specific post-processing
-                if (job?.kind === 'preview' && job?.mode === 'imageDataUrl' && outputPath) {
-                    result.data = this.buildPreviewData(outputPath, stderr, job);
-                }
-                
-                resolve(result);
-            });
-            
-            proc.on('error', (err) => {
-                clearTimeout(timeoutHandle);
-                if (!killedByTimeout) {
+                    process.kill('SIGTERM');
+                    processManager.unregister(process);
                     resolve({
                         success: false,
                         code: null,
-                        signal: null,
+                        signal: 'SIGTERM',
                         stdout,
                         stderr,
-                        error: err.message
+                        timeout: true
                     });
                 }
+            }, effectiveTimeout);
+        }
+
+        const handleStdout = (chunk) => {
+            const text = chunk.toString();
+            stdout += text;
+            safeInvoke(onStdout, chunk);
+        };
+
+        const handleStderr = (chunk) => {
+            const text = chunk.toString();
+            stderr += text;
+            safeInvoke(onStderr, chunk);
+        };
+
+        if (process.stdout) process.stdout.on('data', handleStdout);
+        if (process.stderr) process.stderr.on('data', handleStderr);
+
+        process.once('close', (code, signal) => {
+            cleanupTimeout();
+            if (killedByTimeout) return;
+
+            const result = {
+                success: code === 0,
+                code,
+                signal: signal || null,
+                stdout,
+                stderr
+            };
+
+            safeInvoke(onExit, { code, signal });
+            safeInvoke(onComplete, result, outputPath, stderr, job);
+
+            logDebug(`✅ [spawnTool] Exited with code ${code}${signal ? `, signal ${signal}` : ''}`);
+            resolve(result);
+        });
+
+        process.once('error', (err) => {
+            cleanupTimeout();
+            if (killedByTimeout) return;
+            resolve({
+                success: false,
+                code: null,
+                signal: null,
+                stdout,
+                stderr,
+                error: err.message
             });
         });
+    });
+}
+
+class RunToolCommand extends BaseCommand {
+    async execute(params) {
+        const { tool, args, timeoutMs, job } = params;
+		
+        if (!tool || !['ffprobe', 'ffmpeg'].includes(tool)) return { success: false, error: `Invalid tool: ${tool}. Must be 'ffprobe' or 'ffmpeg'.` };
+        if (!Array.isArray(args)) 							return { success: false, error: 'args must be an array of strings' };
+
+        const { ffprobePath, ffmpegPath } = getBinaryPaths();
+        const toolPath = tool === 'ffprobe' ? ffprobePath : ffmpegPath;
+
+        const result = await spawnTool(toolPath, args, {
+            timeoutMs,
+            job,
+            onComplete: (processResult, outputPath, stderrOutput, jobMeta) => {
+                if (jobMeta?.kind === 'preview' && jobMeta?.mode === 'imageDataUrl' && outputPath) {
+                    processResult.data = this.buildPreviewData(outputPath, stderrOutput, jobMeta);
+                }
+            }
+        });
+
+        return result;
     }
-	
-    /**
-     * Build preview-specific data payload
-     * Note: Stream info parsing happens on extension side using stderr
-     * @param {string} outputPath Path to generated preview file
-     * @param {string} stderr FFmpeg stderr output
-     * @param {Object} job Job metadata
-     * @returns {Object} Preview data
-     */
+
     buildPreviewData(outputPath, stderr, job) {
         const data = {
             previewUrl: null,
             noVideoStream: stderr.includes('Output file does not contain any stream')
         };
-        
+
         const shouldCleanup = job.output?.temp !== false;
         const format = job.output?.format || 'jpg';
-        
+
         if (fs.existsSync(outputPath)) {
             try {
                 const imageBuffer = fs.readFileSync(outputPath);
                 const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
                 data.previewUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
-                
+
                 if (shouldCleanup) {
                     fs.unlink(outputPath, (err) => err && logDebug('Failed to delete preview:', err));
                 }
@@ -194,9 +215,10 @@ class RunToolCommand extends BaseCommand {
                 logDebug('Failed to read preview file:', e.message);
             }
         }
-        
+
         return data;
     }
 }
 
 module.exports = RunToolCommand;
+module.exports.spawnTool = spawnTool;
