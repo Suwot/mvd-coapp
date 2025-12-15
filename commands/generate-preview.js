@@ -90,7 +90,7 @@ class GeneratePreviewCommand extends BaseCommand {
 					logDebug('🔗 Enabling HLS query parameter inheritance for URL:', url);
 				}
             } else if (type === 'dash') {
-                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto,subfile,data', '-probesize', '64k', '-analyzeduration', '500000', '-dash_allow_hier_sidx', '1');
+                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto,subfile,data', '-probesize', '64k', '-analyzeduration', '500000', '-ignore_hier_sidx', '1');
             }
             
             // Add robustness flags

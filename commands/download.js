@@ -842,7 +842,7 @@ class DownloadCommand extends BaseCommand {
                     logDebug('🔗 Enabling HLS query parameter inheritance for URL:', downloadUrl);
                 }
             } else if (type === 'dash') {
-                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '5M', '-analyzeduration', '10M', '-dash_allow_hier_sidx', '1');
+                args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-probesize', '5M', '-analyzeduration', '10M', '-ignore_hier_sidx', '1');
             }
             args.push('-i', downloadUrl);
             logDebug('🎯 Added single input:', type);
