@@ -1,20 +1,89 @@
 #!/bin/bash
-
-# MAX Video Downloader CoApp Build System
-# Creates self-contained installers for all platforms
-
 set -e
 
-VERSION=$(node -p "require('./package.json').version")
-APP_NAME="mvdcoapp"
+# ==============================================================================
+# CONFIGURATION & CONSTANTS
+# ==============================================================================
 
-# ============================================================================
-# UTILITIES
-# ============================================================================
+APP_NAME="mvdcoapp"
+VERSION=$(node -p "require('./package.json').version")
+
+# Paths
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="$ROOT_DIR/bin"
+TOOLS_DIR="$ROOT_DIR/tools"
+RESOURCES_DIR="$ROOT_DIR/resources"
+BUILD_ROOT="$ROOT_DIR/build"
+DIST_DIR="$ROOT_DIR/dist"
+
+# Optional: llvm-mingw toolchain root (used only for Windows cross-compilation)
+LLVM_MINGW_ROOT=${LLVM_MINGW_ROOT:-/opt/llvm-mingw}
+
+# Target Definitions
+ALL_TARGETS=(
+  "win-x64" "win-arm64" "win7-x64"
+  "mac-x64" "mac-arm64" "mac-x64-legacy"
+  "linux-x64" "linux-arm64"
+)
+
+# ==============================================================================
+# HELPERS
+# ==============================================================================
 
 log_info() { echo -e "\033[32m[INFO]\033[0m $1"; }
 log_warn() { echo -e "\033[33m[WARN]\033[0m $1"; }
 log_error() { echo -e "\033[31m[ERROR]\033[0m $1"; }
+
+check_tool() {
+  if ! command -v "$1" &> /dev/null; then
+    log_error "Required tool '$1' not found. Please install it to proceed."
+    exit 1
+  fi
+}
+
+check_compiler_for_target() {
+  local target=$1
+  if [[ "$target" == win-* ]] || [[ "$target" == "win7-x64" ]]; then
+    # We expect llvm-mingw to provide the Windows cross-compilers.
+    # PATH is prepended inside build_binary() for win targets.
+    if [[ "$target" == "win-arm64" ]]; then
+      check_tool "aarch64-w64-mingw32-g++"
+    else
+      check_tool "x86_64-w64-mingw32-g++"
+    fi
+  elif [[ "$target" == mac-* ]]; then
+    check_tool "xcrun"
+    xcrun --find clang++ > /dev/null 2>&1 || {
+      log_error "xcrun can't find clang++. Install Xcode Command Line Tools (xcode-select --install)"
+      exit 1
+    }
+
+  elif [[ "$target" == linux-* ]]; then
+    check_tool "g++"
+  fi
+}
+
+get_pkg_target() {
+  case "$1" in
+    win-x64) echo "node18-win-x64" ;;
+    win-arm64) echo "node18-win-arm64" ;;
+    win7-x64) echo "node12-win-x64" ;;
+    mac-x64) echo "node18-macos-x64" ;;
+    mac-arm64) echo "node18-macos-arm64" ;;
+    mac-x64-legacy) echo "node12-macos-x64" ;;
+    linux-x64) echo "node18-linux-x64" ;;
+    linux-arm64) echo "node18-linux-arm64" ;;
+    *) echo "" ;;
+  esac
+}
+
+get_ffmpeg_platform_dir() {
+  case "$1" in
+    win7-x64) echo "win-x64" ;;
+    mac-x64-legacy) echo "mac-x64" ;;
+    *) echo "$1" ;;
+  esac
+}
 
 detect_platform() {
     case "$(uname -s)" in
@@ -40,217 +109,175 @@ detect_platform() {
     esac
 }
 
-get_pkg_target() {
-    case "$1" in
-        mac-arm64) echo "node18-macos-arm64" ;;
-        mac-x64) echo "node18-macos-x64" ;;
-        win-x64) echo "node18-win-x64" ;;
-        win-arm64) echo "node18-win-arm64" ;;
-        linux-x64) echo "node18-linux-x64" ;;
-        linux-arm64) echo "node18-linux-arm64" ;;
-        *) echo "" ;;
-    esac
-}
-
-get_binary_name() {
-    case "$1" in
-        win-*) echo "mvdcoapp.exe" ;;
-        *) echo "mvdcoapp" ;;
-    esac
-}
-
-# ============================================================================
-# BUILD FUNCTIONS
-# ============================================================================
-
-build_diskspace_helper() {
-    local platform=$1
-    local build_dir=$2
-    local helper_project="tools/diskspace"
-    local helper_src="$helper_project/src/diskspace.cpp"
-    local helper_exe=""
-    local compiler=""
-    local build_output=""
-    
-    if [[ "$platform" == win-* ]]; then
-        helper_exe="mvd-diskspace.exe"
-        compiler="$([[ "$platform" == "win-arm64" ]] && echo "aarch64-w64-mingw32-g++" || echo "x86_64-w64-mingw32-g++")"
-    else
-        helper_exe="mvd-diskspace"
-    fi
-
-    log_info "Building C++ disk space helper for $platform..."
-
-    # Check if source exists
-    if [[ ! -f "$helper_src" ]]; then
-        log_warn "Disk space helper source not found at $helper_src. Skipping."
-        return 0
-    fi
-
-    # Create build directory if it doesn't exist
-    mkdir -p "$helper_project/build"
-    
-    build_output="$helper_project/build/$helper_exe"
-
-    # Build command based on platform
-    if [[ "$platform" == win-* ]]; then
-        if [[ -z "$compiler" ]]; then
-            log_warn "Unsupported Windows helper architecture for $platform."
-            return 0
-        fi
-        if ! command -v "$compiler" &> /dev/null; then
-            log_warn "Required compiler $compiler missing. Skipping $helper_exe build."
-            log_warn "Install with: brew install mingw-w64"
-            return 0
-        fi
-        "$compiler" "$helper_src" -O2 -s -static -o "$build_output"
-    elif [[ "$platform" == mac-* ]]; then
-        clang++ "$helper_src" -O2 -o "$build_output"
-    elif [[ "$platform" == linux-* ]]; then
-        g++ "$helper_src" -O2 -s -o "$build_output"
-    else
-        log_warn "Unknown platform for disk space helper: $platform"
-        return 0
-    fi
-    
-    # Copy to build dir
-    if [[ -f "$build_output" ]]; then
-        cp "$build_output" "$build_dir/"
-        log_info "✓ Disk space helper built: $helper_exe"
-    else
-        log_warn "Disk space helper build failed."
-    fi
-}
-
-build_cpp_helper() {
-    local platform=$1
-    local build_dir=$2
-    local helper_project="tools/fileui"
-    local helper_exe="mvd-fileui.exe"
-    local compiler="x86_64-w64-mingw32-g++"
-
-    log_info "Building C++ file UI helper for $platform..."
-
-    if [[ "$platform" == "win-arm64" ]]; then
-        compiler="aarch64-w64-mingw32-g++"
-    fi
-
-    if ! command -v "$compiler" &> /dev/null; then
-        log_warn "Compiler $compiler not found. Skipping C++ helper build."
-        log_warn "Install with: brew install mingw-w64"
-        return 0
-    fi
-
-    # Check if source exists
-    if [[ ! -f "$helper_project/src/pick.cpp" ]]; then
-        log_warn "C++ helper source not found at $helper_project/src/pick.cpp. Skipping."
-        return 0
-    fi
-
-    # Store original directory
-    local original_dir=$(pwd)
-
-    # Create build directory if it doesn't exist
-    mkdir -p "$helper_project/build"
-
-    # Build the helper
-    cd "$helper_project"
-    if "$compiler" src/pick.cpp -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -o build/$helper_exe; then
-        # Copy the built executable to the build directory
-        if [[ -f "build/$helper_exe" ]]; then
-            cp "build/$helper_exe" "../../$build_dir/"
-            log_info "✓ C++ helper built and copied: $helper_exe"
-        else
-            log_warn "C++ helper executable not found after build"
-        fi
-    else
-        log_warn "C++ helper build failed. Continuing without helper."
-    fi
-
-    # Return to original directory
-    cd "$original_dir"
-}
+# ==============================================================================
+# BUILD LOGIC
+# ==============================================================================
 
 build_binary() {
-    local platform=$1
-    local pkg_target=$(get_pkg_target "$platform")
-    local binary_name=$(get_binary_name "$platform")
-    local build_dir="build/$platform"
-    
-    [[ -z "$pkg_target" ]] && { log_error "Unsupported platform: $platform"; exit 1; }
-    
-    log_info "Building binary for $platform..."
-    
-    # Clean build directory to ensure fresh build
-    rm -rf "$build_dir"
-    mkdir -p "$build_dir"
-    
-    # Build CoApp binary with version
-    APP_VERSION="$VERSION" npx pkg index.js --target "$pkg_target" --output "$build_dir/$binary_name"
-    
-    # Make binary executable (important for double-click functionality)
-    chmod +x "$build_dir/$binary_name"
-    
-    # Copy FFmpeg binaries
-    local ffmpeg_source="bin/$platform"
-    if [[ -d "$ffmpeg_source" ]]; then
-        cp "$ffmpeg_source"/* "$build_dir/"
-        log_info "Copied FFmpeg binaries from $ffmpeg_source"
+  local target=$1
+  log_info "Starting build for target: $target"
+
+  local pkg_target=$(get_pkg_target "$target")
+  if [[ -z "$pkg_target" ]]; then
+    log_error "Unknown target mapping for '$target'"
+    exit 1
+  fi
+
+  # Windows builds: use llvm-mingw toolchain (do not affect mac/linux)
+  if [[ "$target" == win-* ]] || [[ "$target" == "win7-x64" ]]; then
+    if [[ -d "$LLVM_MINGW_ROOT/bin" ]]; then
+      export PATH="$LLVM_MINGW_ROOT/bin:$PATH"
     else
-        log_warn "FFmpeg binaries not found at $ffmpeg_source"
+      log_error "llvm-mingw not found at $LLVM_MINGW_ROOT (expected $LLVM_MINGW_ROOT/bin). Set LLVM_MINGW_ROOT or install llvm-mingw there."
+      exit 1
     fi
-    
-    # Build C++ folder picker helper for Windows
-    if [[ "$platform" =~ ^win- ]]; then
-        build_cpp_helper "$platform" "$build_dir"
+  fi
+
+  # Validate compiler first
+  check_compiler_for_target "$target"
+
+  local build_dir="$BUILD_ROOT/$target"
+  local binary_name="$APP_NAME"
+  [[ "$target" == win* ]] && binary_name="$APP_NAME.exe"
+
+  # 1. Prepare Build Directory
+  rm -rf "$build_dir"
+  mkdir -p "$build_dir"
+
+  # 2. Build Helpers (Diskspace)
+  local diskspace_src="$TOOLS_DIR/diskspace/src/diskspace.cpp"
+  local diskspace_out="$build_dir/mvd-diskspace"
+  [[ "$target" == win* ]] && diskspace_out="$build_dir/mvd-diskspace.exe"
+
+  log_info "  -> Compiling diskspace helper..."
+  if [[ ! -f "$diskspace_src" ]]; then
+     log_error "Diskspace source not found at $diskspace_src"
+     exit 1
+  fi
+
+  if [[ "$target" == win-* ]] || [[ "$target" == "win7-x64" ]]; then
+    local compiler="x86_64-w64-mingw32-g++"
+    [[ "$target" == "win-arm64" ]] && compiler="aarch64-w64-mingw32-g++"
+    # Note: For win7-x64 (legacy), we rely on default linking (usually msvcrt or ucrt provided by toolchain).
+    # User requested llvm-mingw.
+    "$compiler" "$diskspace_src" -O2 -s -static -o "$diskspace_out"
+  elif [[ "$target" == mac-* ]]; then
+    local mac_cxx
+    mac_cxx=$(xcrun --find clang++)
+    local mac_sdk
+    mac_sdk=$(xcrun --sdk macosx --show-sdk-path)
+    "$mac_cxx" "$diskspace_src" -O2 -isysroot "$mac_sdk" -stdlib=libc++ -o "$diskspace_out"
+  elif [[ "$target" == linux-* ]]; then
+    g++ "$diskspace_src" -O2 -s -o "$diskspace_out"
+  fi
+
+  # 3. Build Helpers (FileUI - Windows Only)
+  if [[ "$target" == win* ]]; then
+    local fileui_src="$TOOLS_DIR/fileui/src/pick.cpp"
+    local fileui_out="$build_dir/mvd-fileui.exe"
+    log_info "  -> Compiling fileui helper..."
+    if [[ ! -f "$fileui_src" ]]; then
+       log_error "FileUI source not found at $fileui_src"
+       exit 1
     fi
+    local compiler="x86_64-w64-mingw32-g++"
+    [[ "$target" == "win-arm64" ]] && compiler="aarch64-w64-mingw32-g++"
     
-    # Build C++ disk space helper for all platforms
-    build_diskspace_helper "$platform" "$build_dir"
-    
-    log_info "✓ Binary built: $build_dir/$binary_name (self-contained installer)"
+    "$compiler" "$fileui_src" -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -o "$fileui_out"
+  fi
+
+  # 4. Compile Main Binary (pkg)
+  log_info "  -> Packaging Node.js binary ($pkg_target)..."
+  # We use npx pkg. Ensure cwd is correct.
+  # Using subshell to not pollute env
+  (
+    # Set APP_VERSION for injection if needed by code, though usually read from package.json
+    export APP_VERSION="$VERSION"
+    npx pkg index.js --target "$pkg_target" --output "$build_dir/$binary_name"
+  )
+
+  if [[ ! -f "$build_dir/$binary_name" ]]; then
+    log_error "pkg failed to create binary at $build_dir/$binary_name"
+    exit 1
+  fi
+  chmod +x "$build_dir/$binary_name"
+
+  # 5. Copy Static Assets (FFmpeg)
+  local ffmpeg_plat=$(get_ffmpeg_platform_dir "$target")
+  local ffmpeg_src="$BIN_DIR/$ffmpeg_plat"
+  
+  log_info "  -> Copying FFmpeg binaries from $ffmpeg_plat..."
+  if [[ -d "$ffmpeg_src" ]]; then
+    cp "$ffmpeg_src"/* "$build_dir/"
+  else
+    log_warn "FFmpeg directory not found: $ffmpeg_src. Build will lack ffmpeg!"
+  fi
+  
+  log_info "✓ Build complete for $target"
 }
 
-# ============================================================================
-# PACKAGING FUNCTIONS
-# ============================================================================
+create_installer() {
+  local target=$1
+  log_info "Creating installer for target: $target"
+  
+  local build_dir="$BUILD_ROOT/$target"
+  if [[ ! -d "$build_dir" ]]; then
+     log_error "Build directory missing for $target. Run build first."
+     exit 1
+  fi
 
-create_macos_package() {
-    local platform=$1
-    local build_dir="build/$platform"
-    local app_dir="build/${APP_NAME}.app"
-    local dmg_name="mvdcoapp-${platform}.dmg"
+  mkdir -p "$DIST_DIR"
+
+  if [[ "$target" == win* ]]; then
+    # WINDOWS (NSIS)
+    check_tool "makensis"
+    local nsis_dir="$BUILD_ROOT/nsis-$target"
+    rm -rf "$nsis_dir"
+    mkdir -p "$nsis_dir"
+
+    # Stage files for NSIS
+    cp "$build_dir"/*.exe "$nsis_dir/"
+    cp "$RESOURCES_DIR/windows/installer.nsh" "$nsis_dir/"
+    cp "$RESOURCES_DIR/windows/icon.ico" "$nsis_dir/"
+    cp "$ROOT_DIR/LICENSE.txt" "$nsis_dir/"
+
+    local installer_name="mvdcoapp-${target}.exe"
     
-    [[ ! -d "$build_dir" ]] && { log_error "Build $platform first"; exit 1; }
-    [[ ! "$platform" =~ ^mac- ]] && { log_error "macOS packaging only"; exit 1; }
+    log_info "  -> Running makensis..."
+    (
+      cd "$nsis_dir"
+      # We rely on installer.nsh producing a fixed name (e.g. mvdcoapp-installer.exe) or we force it?
+      # Assuming standard script from repo. We define VERSION.
+      makensis -DVERSION="$VERSION" installer.nsh > /dev/null
+    )
     
-    log_info "Creating macOS package for $platform..."
-    
-    # Clean any existing dist files for this platform
-    rm -f "dist/$dmg_name"
-    
-    # Create app bundle structure
-    local contents_dir="$app_dir/Contents"
-    local macos_dir="$contents_dir/MacOS"
-    local resources_dir="$contents_dir/Resources"
-    
-    rm -rf "$app_dir"
+    # Check what installer.nsh produced. Usually 'mvdcoapp-installer.exe' defined in .nsh
+    local expected_out="$nsis_dir/mvdcoapp-installer.exe"
+    if [[ -f "$expected_out" ]]; then
+      mv "$expected_out" "$DIST_DIR/$installer_name"
+      log_info "✓ Installer created: dist/$installer_name"
+    else
+      log_error "NSIS failed to produce $expected_out"
+      exit 1
+    fi
+    rm -rf "$nsis_dir"
+
+  elif [[ "$target" == mac* ]]; then
+    # MACOS (DMG)
+    check_tool "create-dmg"
+    local app_name_dir="$BUILD_ROOT/${APP_NAME}.app"
+    local dmg_name="mvdcoapp-${target}.dmg"
+
+    # Create .app bundle structure manually
+    rm -rf "$app_name_dir"
+    local macos_dir="$app_name_dir/Contents/MacOS"
+    local resources_dir="$app_name_dir/Contents/Resources"
     mkdir -p "$macos_dir" "$resources_dir"
-    
-    # Copy binaries
+
     cp "$build_dir"/* "$macos_dir/"
-    chmod +x "$macos_dir"/*
     
-    # Ad-hoc sign the app bundle to reduce Gatekeeper restrictions
-    log_info "Ad-hoc signing app bundle..."
-    codesign --force --deep --sign - "$app_dir" 2>/dev/null || log_warn "Code signing failed - app will show unidentified developer warning"
-    
-    # Copy icon
-    local icon_source="resources/mac/AppIcon.icns"
-    [[ -f "$icon_source" ]] && cp "$icon_source" "$resources_dir/AppIcon.icns"
-    
-    # Create Info.plist (point directly to the binary)
-    cat > "$contents_dir/Info.plist" << EOF
+    # Info.plist
+    cat > "$app_name_dir/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -258,7 +285,7 @@ create_macos_package() {
     <key>CFBundleExecutable</key>
     <string>mvdcoapp</string>
     <key>CFBundleIdentifier</key>
-    <string>${APP_NAME}</string>
+    <string>com.mvd.coapp</string>
     <key>CFBundleName</key>
     <string>MAX Video Downloader</string>
     <key>CFBundleDisplayName</key>
@@ -272,7 +299,7 @@ create_macos_package() {
     <key>CFBundleIconFile</key>
     <string>AppIcon.icns</string>
     <key>LSMinimumSystemVersion</key>
-    <string>10.15</string>
+    <string>$([[ "$target" == *"legacy"* ]] && echo "10.10" || echo "10.15")</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>LSUIElement</key>
@@ -281,392 +308,110 @@ create_macos_package() {
 </plist>
 EOF
     
-    # Installer script included for manual installation if needed
-    
-    log_info "macOS .app bundle contains self-installing binary - just double-click mvdcoapp"
-    
-    # Check for create-dmg dependency
-    if ! command -v create-dmg &> /dev/null; then
-        log_error "create-dmg not found. Install with: brew install create-dmg"
-        exit 1
-    fi
-    
-    # Create DMG using create-dmg
-    local dmg_name="mvdcoapp-${platform}.dmg"
-    local final_dmg="dist/$dmg_name"
-    
-    mkdir -p dist
-    rm -f "$final_dmg"
-    
-    log_info "Creating styled DMG with background..."
+    # Icon
+    [[ -f "$RESOURCES_DIR/mac/AppIcon.icns" ]] && cp "$RESOURCES_DIR/mac/AppIcon.icns" "$resources_dir/"
 
-    # Ensure no stale volumes are mounted from previous failed runs
-    # This prevents create-dmg from failing to apply styles (background, icons)
-    # because of mount point conflicts or stuck processes.
-    local vol_name="Max Video Downloader CoApp"
-    if [ -d "/Volumes/$vol_name" ]; then
-        log_warn "Found stale mounted volume '/Volumes/$vol_name'. Unmounting..."
-        hdiutil detach "/Volumes/$vol_name" -force || true
-        sleep 2
+    # Ad-hoc sign
+    log_info "  -> Signing app bundle..."
+    codesign --force --deep --sign - "$app_name_dir" 2>/dev/null || true
+
+    # Create DMG
+    log_info "  -> Creating DMG..."
+    rm -f "$DIST_DIR/$dmg_name"
+    
+    # Unmount stale if any
+    if [ -d "/Volumes/Max Video Downloader CoApp" ]; then
+        hdiutil detach "/Volumes/Max Video Downloader CoApp" -force > /dev/null 2>&1 || true
     fi
+
+    # Simplified create-dmg call (assuming standard options)
+    # Note: window-pos/size configs are cosmetic, can be tuned.
     create-dmg \
         --volname "Max Video Downloader CoApp" \
-        --volicon "resources/mac/AppIcon.icns" \
-        --background "resources/mac/dmg-background.png" \
-        --window-pos 0 0 \
+        --volicon "$RESOURCES_DIR/mac/AppIcon.icns" \
+		--background "$RESOURCES_DIR/mac/dmg-background.png" \
+        --window-pos 200 120 \
         --window-size 934 457 \
         --icon-size 120 \
         --icon "${APP_NAME}.app" 160 288 \
-        --app-drop-link 478 288 \
+		--app-drop-link 478 288 \
         --add-file "README.txt" "resources/mac/README.txt" 734 288 \
         --hide-extension "${APP_NAME}.app" \
-        "$final_dmg" \
-        "$app_dir"
-    
-    # Clean up the intermediary app bundle
-    rm -rf "$app_dir"
-    
-    log_info "✓ Created: $final_dmg"
-}
+        "$DIST_DIR/$dmg_name" \
+        "$app_name_dir" > /dev/null
 
-create_windows_package() {
-    local platform=$1
-    local build_dir="build/$platform"
-    local nsis_dir="build/nsis-$platform"
-    
-    [[ ! -d "$build_dir" ]] && { log_error "Build $platform first"; exit 1; }
-    [[ ! "$platform" =~ ^win- ]] && { log_error "Windows packaging only"; exit 1; }
-    
-    # Check if NSIS is available
-    if ! command -v makensis &> /dev/null; then
-        log_error "NSIS not found. Please install NSIS (makensis) to create Windows installers."
-        log_error "On macOS: brew install nsis"
-        log_error "On Ubuntu/Debian: apt-get install nsis"
-        exit 1
-    fi
-    
-    log_info "Creating Windows NSIS installer for $platform..."
-    
-    # Clean up and create NSIS directory
-    rm -rf "$nsis_dir"
-    mkdir -p "$nsis_dir"
-    
-    # Copy binaries to NSIS directory
-    cp "$build_dir"/mvdcoapp.exe "$nsis_dir/"
-    cp "$build_dir"/ffmpeg.exe "$nsis_dir/"
-    cp "$build_dir"/ffprobe.exe "$nsis_dir/"
-    cp "$build_dir"/mvd-fileui.exe "$nsis_dir/"
-    cp "$build_dir"/mvd-diskspace.exe "$nsis_dir/"
-    
-    # Copy required files for NSIS
-    cp "resources/windows/installer.nsh" "$nsis_dir/"
-    cp "resources/windows/icon.ico" "$nsis_dir/"
-    cp "LICENSE.txt" "$nsis_dir/"
-    
-    # Compile NSIS installer
-    log_info "Compiling NSIS installer..."
-    cd "$nsis_dir"
-    if makensis -DVERSION=$VERSION installer.nsh; then
-        # Move the created installer to the dist directory
-        local installer_name="mvdcoapp-${platform}.exe"
-        mkdir -p ../../dist
-        # Clean any existing installer
-        rm -f "../../dist/$installer_name"
-        mv "mvdcoapp-installer.exe" "../$installer_name"
-        mv "../$installer_name" "../../dist/$installer_name"
-        log_info "✓ Created: ../../dist/$installer_name"
+    if [[ -f "$DIST_DIR/$dmg_name" ]]; then
+        log_info "✓ DMG created: dist/$dmg_name"
     else
-        log_error "NSIS compilation failed"
+        log_error "Failed to create DMG"
         exit 1
     fi
+
+  elif [[ "$target" == linux* ]]; then
+    # LINUX (TAR.GZ)
+    local tar_name="mvdcoapp-${target}.tar.gz"
+    local stage_dir="$BUILD_ROOT/mvdcoapp" # Use generic name in tar
+    rm -rf "$stage_dir"
+    mkdir -p "$stage_dir"
     
-    # Clean up temporary NSIS directory
-    cd ../..
-    rm -rf "$nsis_dir"
+    cp "$build_dir"/* "$stage_dir/"
+    [[ -f "LICENSE.txt" ]] && cp "LICENSE.txt" "$stage_dir/"
+    [[ -f "$RESOURCES_DIR/linux/README.md" ]] && cp "$RESOURCES_DIR/linux/README.md" "$stage_dir/"
+    [[ -f "$RESOURCES_DIR/linux/install.sh" ]] && cp "$RESOURCES_DIR/linux/install.sh" "$stage_dir/"
+
+    log_info "  -> Creating tarball..."
+    tar -czf "$DIST_DIR/$tar_name" -C "$BUILD_ROOT" mvdcoapp
+    
+    rm -rf "$stage_dir"
+    log_info "✓ Tarball created: dist/$tar_name"
+  fi
 }
 
-create_linux_package() {
-    local platform=$1
-    local build_dir="build/$platform"
-    local temp_dir="build/mvdcoapp"
-    local tar_name="mvdcoapp-${platform}.tar.gz"
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 
-    [[ ! -d "$build_dir" ]] && { log_error "Build $platform first"; exit 1; }
-    [[ ! "$platform" =~ ^linux- ]] && { log_error "Linux packaging only"; exit 1; }
+COMMAND=$1
+TARGET=$2
 
-    log_info "Creating Linux tarball for $platform..."
+# Validate Command
+if [[ "$COMMAND" != "build" && "$COMMAND" != "dist" ]]; then
+  echo "Usage: $0 {build|dist} [target|all]"
+  echo "Targets: ${ALL_TARGETS[*]}"
+  exit 1
+fi
 
-    # Clean any existing temp directory and tarball
-    rm -rf "$temp_dir"
-    mkdir -p "$temp_dir"
-    rm -f "dist/$tar_name"
-
-    # Copy binaries
-    cp "$build_dir"/* "$temp_dir/"
-
-    # Copy additional files
-    [[ -f "LICENSE.txt" ]] && cp "LICENSE.txt" "$temp_dir/"
-    [[ -f "resources/linux/README.md" ]] && cp "resources/linux/README.md" "$temp_dir/"
-
-    # Create tarball
-    mkdir -p dist
-    tar -czf "dist/$tar_name" -C build mvdcoapp
-
-    # Clean up temp directory
-    rm -rf "$temp_dir"
-
-    log_info "✓ Created: dist/$tar_name"
+# Execute
+execute_workflow() {
+  local t=$1
+  if [[ ! " ${ALL_TARGETS[@]} " =~ " ${t} " ]]; then
+    log_error "Invalid target: $t. Please specify a valid target or 'all'."
+    echo "Available targets: ${ALL_TARGETS[*]}"
+    exit 1
+  fi
+  
+  build_binary "$t"
+  
+  if [[ "$COMMAND" == "dist" ]]; then
+    create_installer "$t"
+  fi
 }
 
-# Copy install script to dist for publishing
-copy_install_script() {
-    log_info "Copying install script to dist/..."
-    
-    if [[ -f "resources/linux/install.sh" ]]; then
-        cp "resources/linux/install.sh" "dist/"
-        log_info "✓ Copied install.sh to dist/"
-    else
-        log_warn "install.sh not found at resources/linux/install.sh"
-    fi
-}
+# Main Loop
+check_tool "node"
+check_tool "npx"
 
-# Generate checksums file for all artifacts
-generate_checksums() {
-    log_info "Generating SHA256 checksums..."
-    
-    local checksums_file="dist/CHECKSUMS.sha256"
-    
-    # Remove existing checksums file
-    rm -f "$checksums_file"
-    
-    # Generate SHA256 for all artifacts (excluding .DS_Store and checksums file)
-    while IFS= read -r -d '' file; do
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            shasum -a 256 "$file" >> "$checksums_file"
-        else
-            # Linux
-            sha256sum "$file" >> "$checksums_file"
-        fi
-    done < <(find dist -type f -not -name ".DS_Store" -not -name "CHECKSUMS.sha256" -print0)
-    
-    log_info "✓ Generated checksums: $checksums_file"
-}
+if [[ "$TARGET" == "all" ]]; then
+  for t in "${ALL_TARGETS[@]}"; do
+    execute_workflow "$t"
+  done
+elif [[ -n "$TARGET" ]]; then
+  execute_workflow "$TARGET"
+else
+  # Detect current platform and build for it
+  detected_target=$(detect_platform)
+  log_info "No target specified, detected current platform: $detected_target"
+  execute_workflow "$detected_target"
+fi
 
-# ============================================================================
-# PUBLISH FUNCTIONS
-# ============================================================================
-
-scan_virustotal() {
-    # Load .env file if it exists to populate environment variables
-    if [[ -f ".env" ]]; then
-        # shellcheck disable=SC1091
-        source .env
-    elif [[ -f "coapp/.env" ]]; then
-        # shellcheck disable=SC1091
-        source "coapp/.env"
-    fi
-
-    local api_key="$VT_API_KEY"
-    
-    if [[ -z "$api_key" ]]; then
-        log_warn "VirusTotal API key not found (VT_API_KEY env var)."
-        log_warn "To enable scanning, create a .env file with VT_API_KEY=your_key"
-        log_warn "See coapp/.env.example for reference."
-        return 0
-    fi
-    
-    log_info "Requesting VirusTotal scans for binaries..."
-    
-    if ! command -v curl &> /dev/null; then
-        log_warn "curl not found. Skipping VirusTotal scan."
-        return 0
-    fi
-
-    local repo=$(gh repo view --json owner,name -q '.owner.login + "/" + .name')
-    
-    # Find artifacts (dmg, exe, tar.gz)
-    local artifacts=()
-    while IFS= read -r -d '' file; do
-        artifacts+=("$file")
-    done < <(find dist -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.tar.gz" \) -print0)
-    
-    for artifact_path in "${artifacts[@]}"; do
-        local filename=$(basename "$artifact_path")
-        # Construct the "latest" download URL
-        local url="https://github.com/$repo/releases/latest/download/$filename"
-        
-        log_info "Submitting to VirusTotal: $url"
-        
-        # Send to VirusTotal
-        local response
-        response=$(curl --request POST \
-             --url https://www.virustotal.com/api/v3/urls \
-             --header "x-apikey: $api_key" \
-             --form "url=$url" \
-             --silent)
-        
-        # Simple check for success (look for "id" in response)
-        if [[ "$response" == *"\"id\":"* ]]; then
-             log_info "✓ Scan request submitted for $filename"
-        else
-             log_warn "Failed to submit $filename to VirusTotal"
-        fi
-    done
-}
-
-publish_release() {
-    local version=$(node -p "require('./package.json').version")
-    
-    log_info "Publishing CoApp artifacts for version $version..."
-    
-    # Check if gh CLI is available
-    if ! command -v gh &> /dev/null; then
-        log_error "GitHub CLI (gh) not found. Install from https://cli.github.com/"
-        exit 1
-    fi
-    
-    # Check if git tag exists, create if not
-    if ! git tag -l | grep -q "^v$version$"; then
-        log_info "Creating git tag v$version..."
-        git tag "v$version"
-        git push origin "v$version"
-        log_info "✓ Created and pushed tag v$version"
-    else
-        log_info "Git tag v$version already exists"
-    fi
-    
-    # Check if GitHub release exists, create if not
-    if ! gh release view "v$version" &>/dev/null; then
-        log_info "Creating GitHub release v$version..."
-        
-        gh release create "v$version" \
-            --title "CoApp v$version" \
-            --notes "Automated release of CoApp binaries v$version" \
-            --generate-notes
-        
-        log_info "✓ Created GitHub release v$version"
-    else
-        log_info "GitHub release v$version already exists"
-    fi
-    
-    # Check if dist directory exists and has files
-    if [[ ! -d "dist" ]]; then
-        log_error "dist/ directory not found. Run builds first."
-        exit 1
-    fi
-    
-    # Get all files in dist directory
-    local artifacts=()
-    while IFS= read -r -d '' file; do
-        artifacts+=("$file")
-    done < <(find dist -type f -not -name ".DS_Store" -print0)
-    
-    if [[ ${#artifacts[@]} -eq 0 ]]; then
-        log_error "No artifacts found in dist/ directory"
-        exit 1
-    fi
-    
-    log_info "Found ${#artifacts[@]} CoApp artifacts to upload:"
-    printf '  %s\n' "${artifacts[@]}"
-    
-    # Generate checksums for all artifacts
-    generate_checksums
-    
-    # Re-scan artifacts to include checksums file
-    artifacts=()
-    while IFS= read -r -d '' file; do
-        artifacts+=("$file")
-    done < <(find dist -type f -not -name ".DS_Store" -print0)
-    
-    log_info "Updated artifact count: ${#artifacts[@]} (including checksums)"
-    
-    # Upload all artifacts to the release
-    log_info "Uploading to release v$version..."
-    
-    if gh release upload "v$version" "${artifacts[@]}" --clobber; then
-        log_info "✅ Successfully published ${#artifacts[@]} CoApp artifacts for v$version"
-        log_info "📦 Release available at: https://github.com/$(gh repo view --json owner,name -q '.owner.login + "/" + .name')/releases/tag/v$version"
-        
-        # Trigger VirusTotal Scan
-        scan_virustotal
-    else
-        log_error "Failed to upload artifacts"
-        exit 1
-    fi
-}
-
-# ============================================================================
-# MAIN COMMANDS
-# ============================================================================
-
-show_help() {
-    cat << EOF
-MAX Video Downloader CoApp Build System
-
-Usage: ./build-coapp.sh <command> [platform]
-
-Commands:
-  build <platform>     Build CoApp binary for platform
-  package <platform>   Create CoApp distributable package
-  dist <platform>      Build + package CoApp in one step
-  publish              Upload all dist/ CoApp artifacts to GitHub release
-  scan                 Trigger VirusTotal scan for existing dist/ artifacts
-  version              Show CoApp version
-  help                 Show this help
-
-Platforms:
-  mac-arm64, mac-x64, win-x64, win-arm64, linux-x64, linux-arm64
-
-Examples:
-  ./build-coapp.sh dist mac-arm64     # Create complete macOS installer
-  ./build-coapp.sh build mac-arm64    # Just build binary
-  ./build-coapp.sh publish            # Upload all dist files with auto-generated notes
-
-Note: Installation is built into the binary - just run mvdcoapp or double-click
-EOF
-}
-
-case "${1:-help}" in
-    version)
-        echo "MVD CoApp v${VERSION}"
-        ;;
-    build)
-        platform=${2:-$(detect_platform)}
-        build_binary "$platform"
-        ;;
-    package)
-        platform=${2:-$(detect_platform)}
-        case "$platform" in
-            mac-*) create_macos_package "$platform" ;;
-            win-*) create_windows_package "$platform" ;;
-            linux-*) create_linux_package "$platform" ;;
-            *) log_error "Unknown platform: $platform"; exit 1 ;;
-        esac
-        ;;
-    dist)
-        platform=${2:-$(detect_platform)}
-        build_binary "$platform"
-        case "$platform" in
-            mac-*) create_macos_package "$platform" ;;
-            win-*) create_windows_package "$platform" ;;
-            linux-*) create_linux_package "$platform" ;;
-            *) log_error "Unknown platform: $platform"; exit 1 ;;
-        esac
-        copy_install_script
-        ;;
-    publish)
-        publish_release
-        ;;
-    scan)
-        scan_virustotal
-        ;;
-    help|--help|-h)
-        show_help
-        ;;
-    *)
-        log_error "Unknown command: $1"
-        show_help
-        exit 1
-        ;;
-esac
+log_info "Done."
