@@ -69,9 +69,12 @@ build_diskspace_helper() {
     local helper_project="tools/diskspace"
     local helper_src="$helper_project/src/diskspace.cpp"
     local helper_exe=""
+    local compiler=""
+    local build_output=""
     
     if [[ "$platform" == win-* ]]; then
         helper_exe="mvd-diskspace.exe"
+        compiler="$([[ "$platform" == "win-arm64" ]] && echo "aarch64-w64-mingw32-g++" || echo "x86_64-w64-mingw32-g++")"
     else
         helper_exe="mvd-diskspace"
     fi
@@ -87,38 +90,33 @@ build_diskspace_helper() {
     # Create build directory if it doesn't exist
     mkdir -p "$helper_project/build"
     
-    # Store original directory
-    local original_dir=$(pwd)
-    
+    build_output="$helper_project/build/$helper_exe"
+
     # Build command based on platform
     if [[ "$platform" == win-* ]]; then
-        # Windows build (using MinGW)
-        if command -v x86_64-w64-mingw32-g++ &> /dev/null; then
-            x86_64-w64-mingw32-g++ "$helper_src" -O2 -s -static -o "$helper_project/build/$helper_exe"
-        else
-            log_warn "MinGW-w64 not found. Skipping Windows disk space helper build."
+        if [[ -z "$compiler" ]]; then
+            log_warn "Unsupported Windows helper architecture for $platform."
             return 0
         fi
+        if ! command -v "$compiler" &> /dev/null; then
+            log_warn "Required compiler $compiler missing. Skipping $helper_exe build."
+            log_warn "Install with: brew install mingw-w64"
+            return 0
+        fi
+        "$compiler" "$helper_src" -O2 -s -static -o "$build_output"
     elif [[ "$platform" == mac-* ]]; then
-        # macOS build
-        clang++ "$helper_src" -O2 -o "$helper_project/build/$helper_exe"
+        clang++ "$helper_src" -O2 -o "$build_output"
     elif [[ "$platform" == linux-* ]]; then
-        # Linux build
-        g++ "$helper_src" -O2 -s -o "$helper_project/build/$helper_exe"
+        g++ "$helper_src" -O2 -s -o "$build_output"
     else
         log_warn "Unknown platform for disk space helper: $platform"
         return 0
     fi
     
     # Copy to build dir
-    if [[ -f "$helper_project/build/$helper_exe" ]]; then
-        cp "$helper_project/build/$helper_exe" "$build_dir/"
-        log_info "✓ Disk space helper built and copied: $helper_exe"
-        
-        # Also copy to bin directory for future use/bundling
-        local bin_dir="bin/$platform"
-        mkdir -p "$bin_dir"
-        cp "$helper_project/build/$helper_exe" "$bin_dir/"
+    if [[ -f "$build_output" ]]; then
+        cp "$build_output" "$build_dir/"
+        log_info "✓ Disk space helper built: $helper_exe"
     else
         log_warn "Disk space helper build failed."
     fi
@@ -129,12 +127,16 @@ build_cpp_helper() {
     local build_dir=$2
     local helper_project="tools/fileui"
     local helper_exe="mvd-fileui.exe"
+    local compiler="x86_64-w64-mingw32-g++"
 
     log_info "Building C++ file UI helper for $platform..."
 
-    # Check if MinGW-w64 is available
-    if ! command -v x86_64-w64-mingw32-g++ &> /dev/null; then
-        log_warn "MinGW-w64 not found. Skipping C++ helper build."
+    if [[ "$platform" == "win-arm64" ]]; then
+        compiler="aarch64-w64-mingw32-g++"
+    fi
+
+    if ! command -v "$compiler" &> /dev/null; then
+        log_warn "Compiler $compiler not found. Skipping C++ helper build."
         log_warn "Install with: brew install mingw-w64"
         return 0
     fi
@@ -153,7 +155,7 @@ build_cpp_helper() {
 
     # Build the helper
     cd "$helper_project"
-    if x86_64-w64-mingw32-g++ src/pick.cpp -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -o build/$helper_exe; then
+    if "$compiler" src/pick.cpp -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -o build/$helper_exe; then
         # Copy the built executable to the build directory
         if [[ -f "build/$helper_exe" ]]; then
             cp "build/$helper_exe" "../../$build_dir/"
@@ -199,15 +201,8 @@ build_binary() {
     fi
     
     # Build C++ folder picker helper for Windows
-    if [[ "$platform" == win-x64 ]]; then
+    if [[ "$platform" =~ ^win- ]]; then
         build_cpp_helper "$platform" "$build_dir"
-        # Also copy to bin directory for pkg bundling
-        local bin_dir="bin/$platform"
-        mkdir -p "$bin_dir"
-        if [[ -f "$build_dir/mvd-fileui.exe" ]]; then
-            cp "$build_dir/mvd-fileui.exe" "$bin_dir/"
-            log_info "Copied C++ helper to $bin_dir for bundling"
-        fi
     fi
     
     # Build C++ disk space helper for all platforms
