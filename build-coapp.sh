@@ -165,6 +165,45 @@ validate_binary_file() {
   return 0
 }
 
+# Normalize PE subsystem version for a Windows executable using llvm-objcopy.
+# Non-blocking: logs WARN on failure.
+normalize_windows_subsystem() {
+  local target="$1"
+  local exe_path="$2"
+
+  [[ -f "$exe_path" ]] || return 0
+
+  # Prefer llvm-objcopy from llvm-mingw (keeps Windows tooling self-contained)
+  local objcopy_bin=""
+  if [[ -x "$LLVM_MINGW_ROOT/bin/llvm-objcopy" ]]; then
+    objcopy_bin="$LLVM_MINGW_ROOT/bin/llvm-objcopy"
+  elif command -v llvm-objcopy >/dev/null 2>&1; then
+    objcopy_bin="$(command -v llvm-objcopy)"
+  fi
+
+  if [[ -z "$objcopy_bin" ]]; then
+    log_warn "binary-check: llvm-objcopy not found; cannot normalize subsystem for $(basename "$exe_path")"
+    return 0
+  fi
+
+  # Your target policy:
+  # - win7-x64 build should be safe on Windows 7 SP1+ (6.1). Using 6.0 is also acceptable, but 6.1 is explicit.
+  # - win-x64 and win-arm64 are for Windows 10+; keep them consistent.
+  local subsystem_ver="6.1" # Windows 7 SP1+
+  if [[ "$target" == "win-x64" || "$target" == "win-arm64" ]]; then
+    subsystem_ver="10.0" # Windows 10+
+  fi
+
+  # Apply in-place. Non-fatal if it fails.
+  if "$objcopy_bin" --subsystem "console:${subsystem_ver}" "$exe_path" 2>/dev/null; then
+    log_info "binary-check: normalized $(basename "$exe_path") subsystem -> console:${subsystem_ver}"
+  else
+    log_warn "binary-check: failed to normalize subsystem for $(basename "$exe_path")"
+  fi
+
+  return 0
+}
+
 # ==============================================================================
 # BUILD LOGIC
 # ==============================================================================
@@ -225,7 +264,7 @@ build_binary() {
       [[ "$target" == "win-arm64" ]] && compiler="aarch64-w64-mingw32-g++"
       # Note: For win7-x64 (legacy), we rely on default linking (usually msvcrt or ucrt provided by toolchain).
       # User requested llvm-mingw.
-      "$compiler" "$diskspace_src" -O2 -s -static -o "$temp_diskspace"
+      "$compiler" "$diskspace_src" -O2 -s -static -Wl,--major-subsystem-version,6,--minor-subsystem-version,0 -o "$temp_diskspace"
     elif [[ "$target" == mac-* ]]; then
       local mac_cxx
       mac_cxx=$(xcrun --find clang++)
@@ -239,7 +278,9 @@ build_binary() {
         mac_arch="x86_64"
         mac_min_version="10.10"
       fi
+      export MACOSX_DEPLOYMENT_TARGET="$mac_min_version"
       "$mac_cxx" "$diskspace_src" -O2 -arch "$mac_arch" -mmacosx-version-min="$mac_min_version" -isysroot "$mac_sdk" -stdlib=libc++ -o "$temp_diskspace"
+      unset MACOSX_DEPLOYMENT_TARGET
     elif [[ "$target" == linux-* ]]; then
       g++ -std=c++11 "$diskspace_src" -O2 -s -o "$temp_diskspace"
     fi
@@ -269,7 +310,7 @@ build_binary() {
       
       mkdir -p "$BIN_DIR/$ffmpeg_plat"
       local temp_fileui="$bin_fileui.tmp"
-      "$compiler" "$fileui_src" -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -o "$temp_fileui"
+      "$compiler" "$fileui_src" -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -Wl,--major-subsystem-version,6,--minor-subsystem-version,0 -o "$temp_fileui"
       mv "$temp_fileui" "$bin_fileui"
       cp "$bin_fileui" "$build_fileui"
       validate_binary_file "$target" "$build_fileui" || true
@@ -292,6 +333,10 @@ build_binary() {
   fi
   chmod +x "$build_dir/$binary_name"
   validate_binary_file "$target" "$build_dir/$binary_name" || true
+  # Windows: pkg output may drift in SubsystemVersion across arches; normalize it.
+  if [[ "$target" == win-* ]] || [[ "$target" == "win7-x64" ]]; then
+    normalize_windows_subsystem "$target" "$build_dir/$binary_name" || true
+  fi
 
   # 5. Copy Static Assets (FFmpeg)
   local ffmpeg_src="$BIN_DIR/$ffmpeg_plat"
@@ -360,6 +405,15 @@ create_installer() {
     local app_name_dir="$BUILD_ROOT/${APP_NAME}.app"
     local dmg_name="mvdcoapp-${target}.dmg"
 
+    local min_system_version
+    if [[ "$target" == "mac-x64-legacy" ]]; then
+      min_system_version="10.10"
+    elif [[ "$target" == "mac-x64" ]]; then
+      min_system_version="10.15"
+    elif [[ "$target" == "mac-arm64" ]]; then
+      min_system_version="11.0"
+    fi
+
     # Create .app bundle structure manually
     rm -rf "$app_name_dir"
     local macos_dir="$app_name_dir/Contents/MacOS"
@@ -391,7 +445,7 @@ create_installer() {
     <key>CFBundleIconFile</key>
     <string>AppIcon.icns</string>
     <key>LSMinimumSystemVersion</key>
-    <string>$([[ "$target" == *"legacy"* ]] && echo "10.10" || echo "10.15")</string>
+    <string>${min_system_version}</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>LSUIElement</key>
@@ -434,6 +488,7 @@ EOF
 
     if [[ -f "$DIST_DIR/$dmg_name" ]]; then
         log_info "✓ DMG created: dist/$dmg_name"
+        rm -rf "$app_name_dir"
     else
         log_error "Failed to create DMG"
         exit 1
