@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <cstdint>
+#include <cstdio>
 
 #ifdef _WIN32
 #include <windows.h>

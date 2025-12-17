@@ -109,6 +109,62 @@ detect_platform() {
     esac
 }
 
+# Return a grep regex describing the expected file(1) output for the given target.
+expected_file_regex_for_target() {
+  case "$1" in
+    win-x64|win7-x64) echo 'PE32\+.*(x86-64|x86_64)';;
+    win-arm64) echo 'PE32\+.*(Aarch64|ARM64|aarch64)';;
+    mac-x64|mac-x64-legacy) echo 'Mach-O.*x86_64';;
+    mac-arm64) echo 'Mach-O.*arm64';;
+    linux-x64) echo 'ELF.*x86-64';;
+    linux-arm64) echo 'ELF.*(aarch64|ARM aarch64)';;
+    *) echo '';;
+  esac
+}
+
+# Validate a single binary path using `file`. Non-blocking.
+# Logs OK/WARN; never exits non-zero.
+validate_binary_file() {
+  local target="$1"
+  local path="$2"
+
+  if [[ ! -e "$path" ]]; then
+    log_warn "binary-check: MISSING $(basename "$path")"
+    return 0
+  fi
+
+  if ! command -v file >/dev/null 2>&1; then
+    log_warn "binary-check: 'file' command not found; skipping validation for $(basename "$path")"
+    return 0
+  fi
+
+  local expected
+  expected=$(expected_file_regex_for_target "$target")
+  if [[ -z "$expected" ]]; then
+    log_warn "binary-check: unknown target '$target'; skipping validation for $(basename "$path")"
+    return 0
+  fi
+
+  local desc
+  desc=$(file -b "$path" 2>/dev/null || true)
+
+  local desc_full="$desc"
+  local desc_log
+  if [[ "$desc" == *,* ]]; then
+    desc_log=$(echo "$desc" | awk -F', ' '{print $1", "$2", "$3}')
+  else
+    desc_log="$desc"
+  fi
+
+  if echo "$desc_full" | grep -Eiq "$expected"; then
+    log_info "binary-check: OK $(basename "$path") -> $desc_log"
+  else
+    log_warn "binary-check: WARN $(basename "$path") -> $desc_log (expected: $expected)"
+  fi
+
+  return 0
+}
+
 # ==============================================================================
 # BUILD LOGIC
 # ==============================================================================
@@ -117,6 +173,7 @@ build_binary() {
   local target=$1
   log_info "Starting build for target: $target"
 
+  local ffmpeg_plat=$(get_ffmpeg_platform_dir "$target")
   local pkg_target=$(get_pkg_target "$target")
   if [[ -z "$pkg_target" ]]; then
     log_error "Unknown target mapping for '$target'"
@@ -137,8 +194,9 @@ build_binary() {
   check_compiler_for_target "$target"
 
   local build_dir="$BUILD_ROOT/$target"
-  local binary_name="$APP_NAME"
-  [[ "$target" == win* ]] && binary_name="$APP_NAME.exe"
+  local ext=""
+  [[ "$target" == win* ]] && ext=".exe"
+  local binary_name="$APP_NAME$ext"
 
   # 1. Prepare Build Directory
   rm -rf "$build_dir"
@@ -146,44 +204,76 @@ build_binary() {
 
   # 2. Build Helpers (Diskspace)
   local diskspace_src="$TOOLS_DIR/diskspace/src/diskspace.cpp"
-  local diskspace_out="$build_dir/mvd-diskspace"
-  [[ "$target" == win* ]] && diskspace_out="$build_dir/mvd-diskspace.exe"
+  local bin_diskspace="$BIN_DIR/$ffmpeg_plat/mvd-diskspace$ext"
+  local build_diskspace="$build_dir/mvd-diskspace$ext"
 
-  log_info "  -> Compiling diskspace helper..."
-  if [[ ! -f "$diskspace_src" ]]; then
-     log_error "Diskspace source not found at $diskspace_src"
-     exit 1
-  fi
+  if [[ -f "$bin_diskspace" ]]; then
+    cp "$bin_diskspace" "$build_diskspace"
+    validate_binary_file "$target" "$build_diskspace" || true
+  else
+    log_info "  -> Compiling diskspace helper..."
+    if [[ ! -f "$diskspace_src" ]]; then
+       log_error "Diskspace source not found at $diskspace_src"
+       exit 1
+    fi
 
-  if [[ "$target" == win-* ]] || [[ "$target" == "win7-x64" ]]; then
-    local compiler="x86_64-w64-mingw32-g++"
-    [[ "$target" == "win-arm64" ]] && compiler="aarch64-w64-mingw32-g++"
-    # Note: For win7-x64 (legacy), we rely on default linking (usually msvcrt or ucrt provided by toolchain).
-    # User requested llvm-mingw.
-    "$compiler" "$diskspace_src" -O2 -s -static -o "$diskspace_out"
-  elif [[ "$target" == mac-* ]]; then
-    local mac_cxx
-    mac_cxx=$(xcrun --find clang++)
-    local mac_sdk
-    mac_sdk=$(xcrun --sdk macosx --show-sdk-path)
-    "$mac_cxx" "$diskspace_src" -O2 -isysroot "$mac_sdk" -stdlib=libc++ -o "$diskspace_out"
-  elif [[ "$target" == linux-* ]]; then
-    g++ "$diskspace_src" -O2 -s -o "$diskspace_out"
+    mkdir -p "$BIN_DIR/$ffmpeg_plat"
+    local temp_diskspace="$bin_diskspace.tmp"
+
+    if [[ "$target" == win-* ]] || [[ "$target" == "win7-x64" ]]; then
+      local compiler="x86_64-w64-mingw32-g++"
+      [[ "$target" == "win-arm64" ]] && compiler="aarch64-w64-mingw32-g++"
+      # Note: For win7-x64 (legacy), we rely on default linking (usually msvcrt or ucrt provided by toolchain).
+      # User requested llvm-mingw.
+      "$compiler" "$diskspace_src" -O2 -s -static -o "$temp_diskspace"
+    elif [[ "$target" == mac-* ]]; then
+      local mac_cxx
+      mac_cxx=$(xcrun --find clang++)
+      local mac_sdk
+      mac_sdk=$(xcrun --sdk macosx --show-sdk-path)
+      local mac_arch
+      if [[ "$target" == "mac-arm64" ]]; then
+        mac_arch="arm64"
+        mac_min_version="11.0"
+      else
+        mac_arch="x86_64"
+        mac_min_version="10.10"
+      fi
+      "$mac_cxx" "$diskspace_src" -O2 -arch "$mac_arch" -mmacosx-version-min="$mac_min_version" -isysroot "$mac_sdk" -stdlib=libc++ -o "$temp_diskspace"
+    elif [[ "$target" == linux-* ]]; then
+      g++ -std=c++11 "$diskspace_src" -O2 -s -o "$temp_diskspace"
+    fi
+
+    mv "$temp_diskspace" "$bin_diskspace"
+    cp "$bin_diskspace" "$build_diskspace"
+    validate_binary_file "$target" "$build_diskspace" || true
   fi
 
   # 3. Build Helpers (FileUI - Windows Only)
   if [[ "$target" == win* ]]; then
     local fileui_src="$TOOLS_DIR/fileui/src/pick.cpp"
-    local fileui_out="$build_dir/mvd-fileui.exe"
-    log_info "  -> Compiling fileui helper..."
-    if [[ ! -f "$fileui_src" ]]; then
-       log_error "FileUI source not found at $fileui_src"
-       exit 1
+    local bin_fileui="$BIN_DIR/$ffmpeg_plat/mvd-fileui$ext"
+    local build_fileui="$build_dir/mvd-fileui$ext"
+
+    if [[ -f "$bin_fileui" ]]; then
+      cp "$bin_fileui" "$build_fileui"
+      validate_binary_file "$target" "$build_fileui" || true
+    else
+      log_info "  -> Compiling fileui helper..."
+      if [[ ! -f "$fileui_src" ]]; then
+         log_error "FileUI source not found at $fileui_src"
+         exit 1
+      fi
+      local compiler="x86_64-w64-mingw32-g++"
+      [[ "$target" == "win-arm64" ]] && compiler="aarch64-w64-mingw32-g++"
+      
+      mkdir -p "$BIN_DIR/$ffmpeg_plat"
+      local temp_fileui="$bin_fileui.tmp"
+      "$compiler" "$fileui_src" -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -o "$temp_fileui"
+      mv "$temp_fileui" "$bin_fileui"
+      cp "$bin_fileui" "$build_fileui"
+      validate_binary_file "$target" "$build_fileui" || true
     fi
-    local compiler="x86_64-w64-mingw32-g++"
-    [[ "$target" == "win-arm64" ]] && compiler="aarch64-w64-mingw32-g++"
-    
-    "$compiler" "$fileui_src" -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -o "$fileui_out"
   fi
 
   # 4. Compile Main Binary (pkg)
@@ -201,18 +291,20 @@ build_binary() {
     exit 1
   fi
   chmod +x "$build_dir/$binary_name"
+  validate_binary_file "$target" "$build_dir/$binary_name" || true
 
   # 5. Copy Static Assets (FFmpeg)
-  local ffmpeg_plat=$(get_ffmpeg_platform_dir "$target")
   local ffmpeg_src="$BIN_DIR/$ffmpeg_plat"
   
   log_info "  -> Copying FFmpeg binaries from $ffmpeg_plat..."
   if [[ -d "$ffmpeg_src" ]]; then
     cp "$ffmpeg_src"/* "$build_dir/"
+    validate_binary_file "$target" "$build_dir/ffmpeg$ext" || true
+    validate_binary_file "$target" "$build_dir/ffprobe$ext" || true
   else
     log_warn "FFmpeg directory not found: $ffmpeg_src. Build will lack ffmpeg!"
   fi
-  
+
   log_info "✓ Build complete for $target"
 }
 
