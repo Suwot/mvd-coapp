@@ -7,6 +7,7 @@ set -e
 
 APP_NAME="mvdcoapp"
 VERSION=$(node -p "require('./package.json').version")
+SCAN_ON_PUBLISH=1 # Toggle to enable VirusTotal scanning on publish
 
 # Paths
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,6 +16,12 @@ TOOLS_DIR="$ROOT_DIR/tools"
 RESOURCES_DIR="$ROOT_DIR/resources"
 BUILD_ROOT="$ROOT_DIR/build"
 DIST_DIR="$ROOT_DIR/dist"
+
+# Optional env overrides loaded once per run
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  # shellcheck disable=SC1090
+  source "$ROOT_DIR/.env"
+fi
 
 # Optional: llvm-mingw toolchain root (used only for Windows cross-compilation)
 LLVM_MINGW_ROOT=${LLVM_MINGW_ROOT:-/opt/llvm-mingw}
@@ -515,6 +522,192 @@ EOF
 }
 
 # ==============================================================================
+# PUBLISH UTILITIES
+# ==============================================================================
+
+generate_checksums() {
+  if [[ ! -d "$DIST_DIR" ]]; then
+    log_warn "dist/ directory not found; skipping checksum generation."
+    return 0
+  fi
+
+  local -a checksum_tool
+  if command -v shasum >/dev/null 2>&1; then
+    checksum_tool=(shasum -a 256)
+  elif command -v sha256sum >/dev/null 2>&1; then
+    checksum_tool=(sha256sum)
+  else
+    log_warn "Neither shasum nor sha256sum available; skipping checksum generation."
+    return 0
+  fi
+
+  local checksum_file="$DIST_DIR/checksums.txt"
+  rm -f "$checksum_file"
+
+  local files=()
+  while IFS=$'\0' read -r -d '' file; do
+    files+=("$file")
+  done < <(find "$DIST_DIR" -type f -not -name ".DS_Store" -not -name "checksums.txt" -print0)
+
+  if [[ ${#files[@]} -eq 0 ]]; then
+    log_warn "No artifacts found to checksum."
+    return 0
+  fi
+
+  {
+    for file in "${files[@]}"; do
+      "${checksum_tool[@]}" "$file"
+    done
+  } > "$checksum_file"
+
+  log_info "Checksums recorded to $checksum_file"
+}
+
+scan_virustotal() {
+  local api_key="$VT_API_KEY"
+  local repo="${VT_GITHUB_REPO:-}"
+  if [[ -z "$api_key" ]]; then
+    log_warn "VirusTotal API key not found (VT_API_KEY env var)."
+    log_warn "To enable scanning, create a .env file with VT_API_KEY=your_key"
+    log_warn "See coapp/.env.example for reference."
+    return 0
+  fi
+
+  if [[ -z "$repo" ]]; then
+    log_warn "VT_GITHUB_REPO not configured; skipping VirusTotal scan."
+    return 0
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    log_warn "curl not found. Skipping VirusTotal scan."
+    return 0
+  fi
+
+  log_info "Requesting VirusTotal scans for binaries..."
+
+  local artifacts=()
+  while IFS=$'\0' read -r -d '' file; do
+    artifacts+=("$file")
+  done < <(find "$DIST_DIR" -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.tar.gz" \) -print0)
+
+  if [[ ${#artifacts[@]} -eq 0 ]]; then
+    log_warn "No distributable artifacts found in dist/ for VirusTotal scan."
+    return 0
+  fi
+
+  for artifact_path in "${artifacts[@]}"; do
+    local filename
+    filename=$(basename "$artifact_path")
+    local url="https://github.com/$repo/releases/latest/download/$filename"
+    log_info "Submitting to VirusTotal: $url"
+
+    local response
+    if ! response=$(curl --silent --show-error --fail \
+         --write-out "HTTPSTATUS:%{http_code}" \
+         --request POST \
+         --url https://www.virustotal.com/api/v3/urls \
+         --header "x-apikey: $api_key" \
+         --form "url=$url"); then
+      log_warn "VirusTotal request failed for $filename"
+      continue
+    fi
+
+    local http_status=${response##*HTTPSTATUS:}
+    local body=${response%HTTPSTATUS:*}
+    if [[ "$body" == *"\"id\":"* ]]; then
+      log_info "✓ Scan request submitted for $filename"
+    else
+      log_warn "VirusTotal scan response missing id (status $http_status) for $filename"
+    fi
+  done
+}
+
+publish_release() {
+  local version="$VERSION"
+  log_info "Publishing CoApp artifacts for version $version..."
+
+  check_tool "gh"
+  check_tool "git"
+
+  if [[ ! -d "$DIST_DIR" ]]; then
+    log_error "dist/ directory not found. Run builds first."
+    exit 1
+  fi
+
+  local linux_install_src="$RESOURCES_DIR/linux/install.sh"
+  if [[ -f "$linux_install_src" ]]; then
+    cp -f "$linux_install_src" "$DIST_DIR/install.sh"
+    chmod +x "$DIST_DIR/install.sh"
+    log_info "Staged linux install script into dist/install.sh"
+  fi
+
+  local artifacts=()
+  while IFS=$'\0' read -r -d '' file; do
+    artifacts+=("$file")
+  done < <(find "$DIST_DIR" -type f -not -name ".DS_Store" -not -name "checksums.txt" -print0)
+
+  if [[ ${#artifacts[@]} -eq 0 ]]; then
+    log_error "No artifacts found in dist/ directory"
+    exit 1
+  fi
+
+  log_info "Found ${#artifacts[@]} CoApp artifacts to upload:"
+  printf '  %s\n' "${artifacts[@]}"
+
+  local release_repo="${VT_GITHUB_REPO:-}"
+  if [[ -z "$release_repo" ]]; then
+    release_repo=$(cd "$ROOT_DIR" && gh repo view --json owner,name -q '.owner.login + "/" + .name')
+  fi
+
+  generate_checksums
+  local checksum_file="$DIST_DIR/checksums.txt"
+  if [[ -f "$checksum_file" ]]; then
+    artifacts+=("$checksum_file")
+  fi
+
+  log_info "Updated artifact count: ${#artifacts[@]} (including checksums)"
+
+  (
+    cd "$ROOT_DIR" || exit 1
+    if ! git tag -l | grep -q "^v$version$"; then
+      log_info "Creating git tag v$version..."
+      git tag "v$version"
+      git push origin "v$version"
+      log_info "✓ Created and pushed tag v$version"
+    else
+      log_info "Git tag v$version already exists"
+    fi
+
+    if ! gh release view "v$version" &>/dev/null; then
+      log_info "Creating GitHub release v$version..."
+      gh release create "v$version" \
+        --title "CoApp v$version" \
+        --generate-notes
+      log_info "✓ Created GitHub release v$version"
+    else
+      log_info "GitHub release v$version already exists"
+    fi
+  )
+
+  log_info "Uploading to release v$version..."
+  if (
+    cd "$ROOT_DIR" && \
+    gh release upload "v$version" "${artifacts[@]}" --clobber
+  ); then
+    log_info "✅ Successfully published ${#artifacts[@]} CoApp artifacts for v$version"
+    log_info "📦 Release available at: https://github.com/$release_repo/releases/tag/v$version"
+    if [[ "${SCAN_ON_PUBLISH}" == "1" ]]; then
+      scan_virustotal
+    else
+      log_info "VirusTotal scan is disabled (SCAN_ON_PUBLISH=${SCAN_ON_PUBLISH})"
+    fi
+  else
+    log_error "Failed to upload artifacts"
+    exit 1
+  fi
+}
+
+# ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
 
@@ -522,18 +715,25 @@ COMMAND=$1
 TARGET=$2
 
 # Validate Command
-if [[ "$COMMAND" != "build" && "$COMMAND" != "dist" ]]; then
-  echo "Usage: $0 {build|dist} [target|all]"
-  echo "Targets: ${ALL_TARGETS[*]}"
+if [[ "$COMMAND" != "build" && "$COMMAND" != "dist" && "$COMMAND" != "publish" ]]; then
+  echo "Usage:"
+  echo "  $0 build <target|all>"
+  echo "  $0 dist <target|all>"
+  echo "  $0 publish"
+  echo
+  echo "Available targets:"
+  echo "  ${ALL_TARGETS[*]}"
   exit 1
 fi
 
 # Execute
 execute_workflow() {
   local t=$1
-  if [[ ! " ${ALL_TARGETS[@]} " =~ " ${t} " ]]; then
-    log_error "Invalid target: $t. Please specify a valid target or 'all'."
-    echo "Available targets: ${ALL_TARGETS[*]}"
+  local ok=0
+  local x
+  for x in "${ALL_TARGETS[@]}"; do [[ "$x" == "$t" ]] && ok=1 && break; done
+  if [[ $ok -ne 1 ]]; then
+    log_error "Invalid target: $t. Available targets: ${ALL_TARGETS[*]}"
     exit 1
   fi
   
@@ -545,6 +745,15 @@ execute_workflow() {
 }
 
 # Main Loop
+if [[ "$COMMAND" == "publish" ]]; then
+  if [[ -n "$TARGET" ]]; then
+    log_error "publish command does not accept a target argument"
+    exit 1
+  fi
+  publish_release
+  exit 0
+fi
+
 check_tool "node"
 check_tool "npx"
 
