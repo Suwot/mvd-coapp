@@ -541,13 +541,13 @@ generate_checksums() {
     return 0
   fi
 
-  local checksum_file="$DIST_DIR/checksums.txt"
+  local checksum_file="$DIST_DIR/CHECKSUMS.sha256"
   rm -f "$checksum_file"
 
   local files=()
   while IFS=$'\0' read -r -d '' file; do
     files+=("$file")
-  done < <(find "$DIST_DIR" -type f -not -name ".DS_Store" -not -name "checksums.txt" -print0)
+  done < <(find "$DIST_DIR" -type f -not -name ".DS_Store" -not -name "CHECKSUMS.sha256" -print0)
 
   if [[ ${#files[@]} -eq 0 ]]; then
     log_warn "No artifacts found to checksum."
@@ -650,7 +650,7 @@ publish_release() {
   local artifacts=()
   while IFS=$'\0' read -r -d '' file; do
     artifacts+=("$file")
-  done < <(find "$DIST_DIR" -type f -not -name ".DS_Store" -not -name "checksums.txt" -print0)
+  done < <(find "$DIST_DIR" -type f -not -name ".DS_Store" -not -name "CHECKSUMS.sha256" -print0)
 
   if [[ ${#artifacts[@]} -eq 0 ]]; then
     log_error "No artifacts found in dist/ directory"
@@ -661,7 +661,7 @@ publish_release() {
   printf '  %s\n' "${artifacts[@]}"
 
   generate_checksums
-  local checksum_file="$DIST_DIR/checksums.txt"
+  local checksum_file="$DIST_DIR/CHECKSUMS.sha256"
   if [[ -f "$checksum_file" ]]; then
     artifacts+=("$checksum_file")
   fi
