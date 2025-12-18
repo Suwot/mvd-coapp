@@ -25,6 +25,7 @@ fi
 
 # Optional: llvm-mingw toolchain root (used only for Windows cross-compilation)
 LLVM_MINGW_ROOT=${LLVM_MINGW_ROOT:-/opt/llvm-mingw}
+LEGACY_TRANSPILED_DIR=""
 
 # Target Definitions
 ALL_TARGETS=(
@@ -117,26 +118,19 @@ transpile_sources_for_pkg_target() {
 	log_info "  -> Transpiling Node sources for legacy target ($pkg_target)..."
 	local babel_args=(babel --extensions ".js,.mjs,.cjs" --copy-files --config-file "$babel_config")
 
-	run_babel() {
-		local src=$1
-		local dest=$2
-		mkdir -p "$dest"
-		if ! (
-			cd "$ROOT_DIR" &&
-				npx --yes --no-install "${babel_args[@]}" "$src" --out-dir "$dest" 1>&2
-		); then
-			log_error "Babel transpilation failed for $pkg_target (source: $src)."
-			exit 1
-		fi
-	}
+	if ! (
+		cd "$ROOT_DIR" &&
+			npx --yes --no-install "${babel_args[@]}" src --out-dir "$transpiled_dir/src" 1>&2
+	); then
+		log_error "Babel transpilation failed for $pkg_target."
+		exit 1
+	fi
 
-	run_babel src/index.js "$transpiled_dir"
-	run_babel package.json "$transpiled_dir"
-	for dir in src/commands src/lib src/utils; do
-		run_babel "$dir" "$transpiled_dir/$dir"
-	done
+	if [[ -f "$ROOT_DIR/package.json" ]]; then
+		cp "$ROOT_DIR/package.json" "$transpiled_dir/package.json"
+	fi
 
-	echo "$transpiled_dir"
+	LEGACY_TRANSPILED_DIR="$transpiled_dir"
 }
 
 get_ffmpeg_platform_dir() {
@@ -278,10 +272,9 @@ build_binary() {
 	local transpiled_dir=""
 	if is_legacy "$target"; then
 		check_npx_tool "babel"
-		local transpile_output
-		transpile_output=$(transpile_sources_for_pkg_target "$pkg_target")
-		transpiled_dir=$(printf '%s\n' "$transpile_output" | tail -n1)
-		pkg_entry="$transpiled_dir/index.js"
+		transpile_sources_for_pkg_target "$pkg_target"
+		transpiled_dir="$LEGACY_TRANSPILED_DIR"
+		pkg_entry="$transpiled_dir/src/index.js"
 	fi
 
 	# 1. Prepare Build Directory
@@ -389,6 +382,7 @@ build_binary() {
 	if [[ -n "$transpiled_dir" ]]; then
 		rm -rf "$transpiled_dir"
 		transpiled_dir=""
+		LEGACY_TRANSPILED_DIR=""
 	fi
 
 	# 5. Copy Static Assets (FFmpeg)
