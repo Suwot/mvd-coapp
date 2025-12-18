@@ -139,10 +139,7 @@ if (hasCommand('uninstall')) {
 }
 
 // Import commands directly
-const DownloadCommand = require('./commands/download');
 const DownloadCommandV2 = require('./commands/download-v2');
-const GetQualitiesCommand = require('./commands/get-qualities');
-const GeneratePreviewCommand = require('./commands/generate-preview');
 const FileSystemCommand = require('./commands/file-system');
 const RunToolCommand = require('./commands/run-tool');
 const processManager = require('./lib/process-manager');
@@ -242,7 +239,7 @@ async function bootstrap() {
             logsFolder: TEMP_DIR,
             logFile: LOG_FILE,
             logFileSize: logFileSize,
-            capabilities: ['download', 'download-v2', 'cancel-download-v2', 'get-qualities', 'generate-preview', 'file-system', 'kill-processing', 'run-tool']
+            capabilities: ['download-v2', 'cancel-download-v2', 'file-system', 'kill-processing', 'run-tool']
         };
         messagingService.sendMessage(connectionInfo);
         
@@ -259,12 +256,8 @@ async function bootstrap() {
 
 // Command registry - direct mapping
 const commands = {
-    'download': DownloadCommand,
-    'cancel-download': DownloadCommand,
     'download-v2': DownloadCommandV2,
     'cancel-download-v2': DownloadCommandV2,
-    'getQualities': GetQualitiesCommand,
-    'generatePreview': GeneratePreviewCommand,
     'fileSystem': FileSystemCommand,
     'runTool': RunToolCommand,
     'kill-processing': {
@@ -291,7 +284,7 @@ async function processMessage(request, messagingService) {
     const commandType = request.command;
     
     // Track long-running operations
-    const isLongRunningOperation = ['download', 'download-v2', 'getQualities', 'generatePreview', 'fileSystem', 'runTool'].includes(commandType);
+    const isLongRunningOperation = ['download-v2', 'fileSystem', 'runTool'].includes(commandType);
     
     if (isLongRunningOperation) {
         incrementOperations();
