@@ -130,9 +130,9 @@ transpile_sources_for_pkg_target() {
 		fi
 	}
 
-	run_babel index.js "$transpiled_dir"
+	run_babel src/index.js "$transpiled_dir"
 	run_babel package.json "$transpiled_dir"
-	for dir in commands lib utils; do
+	for dir in src/commands src/lib src/utils; do
 		run_babel "$dir" "$transpiled_dir/$dir"
 	done
 
@@ -274,7 +274,7 @@ build_binary() {
 	local ext=""
 	if is_windows "$target"; then ext=".exe"; fi
 	local binary_name="$APP_NAME$ext"
-	local pkg_entry="index.js"
+	local pkg_entry="src/index.js"
 	local transpiled_dir=""
 	if is_legacy "$target"; then
 		check_npx_tool "babel"

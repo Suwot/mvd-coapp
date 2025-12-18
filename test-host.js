@@ -2,10 +2,10 @@
 
 // Simple test script for the CoApp
 const { spawn } = require('child_process');
-const processManager = require('./lib/process-manager');
+const processManager = require('./src/lib/process-manager');
 
 // Create a process to run the host
-const hostProcess = spawn('node', ['./index.js'], {
+const hostProcess = spawn('node', ['./src/index.js'], {
   stdio: ['pipe', 'pipe', 'pipe']
 });
 processManager.register(hostProcess);

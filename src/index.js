@@ -1,4 +1,12 @@
 #!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const bootLogPath = path.join(process.env.TEMP || process.cwd(), 'mvdcoapp.boot.log');
+try {
+    fs.appendFileSync(bootLogPath, `BOOT ${new Date().toISOString()} argv=${JSON.stringify(process.argv)} stdinTTY=${!!process.stdin.isTTY}\n`);
+} catch (err) {
+    // Prevent boot logging failures from affecting startup
+}
 /**
  * MVD CoApp – Main entry point for the CoApp
  * - Initializes the native messaging host environment
@@ -27,7 +35,7 @@ function getVersion() {
         try {
             const fs = require('fs');
             const path = require('path');
-            const packageJsonPath = path.join(__dirname, 'package.json');
+            const packageJsonPath = path.join(__dirname, '../package.json');
             const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
             return packageJson.version;
         } catch {
@@ -73,7 +81,8 @@ function showUsage() {
 }
 
 // Handle CLI commands before Chrome messaging setup
-const args = process.argv.slice(2);
+const cliArgsStart = process.execPath === process.argv[0] ? 1 : 2;
+const args = process.argv.slice(cliArgsStart);
 
 // Define command aliases for cross-compatibility
 const commandAliases = {
@@ -93,7 +102,6 @@ if (args.length === 0) {
     if (IS_MACOS || IS_LINUX) {
         // macOS/Linux: Run installer on double-click
         runInstallerOperation('install', 'Installation');
-        return;
     } else if (IS_WINDOWS) {
         // Windows: Do nothing, exit silently (users should use NSIS installer)
         process.exit(0);
@@ -119,7 +127,6 @@ if (hasCommand('install')) {
         process.exit(1);
     }
     runInstallerOperation('install', 'Installation');
-    return;
 }
 
 // Handle uninstall command (not available on Windows)
@@ -129,7 +136,6 @@ if (hasCommand('uninstall')) {
         process.exit(1);
     }
     runInstallerOperation('uninstall', 'Uninstallation');
-    return;
 }
 
 // Import commands directly
@@ -203,7 +209,7 @@ async function bootstrap() {
         // Send connection info on startup (unsolicited event)
         const version = process.env.APP_VERSION || (() => {
             try {
-                const pkg = require('./package.json');
+                const pkg = require('../package.json');
                 return pkg.version;
             } catch {
                 return '0.0.0';
