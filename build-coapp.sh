@@ -172,45 +172,6 @@ validate_binary_file() {
   return 0
 }
 
-# Normalize PE subsystem version for a Windows executable using llvm-objcopy.
-# Non-blocking: logs WARN on failure.
-normalize_windows_subsystem() {
-  local target="$1"
-  local exe_path="$2"
-
-  [[ -f "$exe_path" ]] || return 0
-
-  # Prefer llvm-objcopy from llvm-mingw (keeps Windows tooling self-contained)
-  local objcopy_bin=""
-  if [[ -x "$LLVM_MINGW_ROOT/bin/llvm-objcopy" ]]; then
-    objcopy_bin="$LLVM_MINGW_ROOT/bin/llvm-objcopy"
-  elif command -v llvm-objcopy >/dev/null 2>&1; then
-    objcopy_bin="$(command -v llvm-objcopy)"
-  fi
-
-  if [[ -z "$objcopy_bin" ]]; then
-    log_warn "binary-check: llvm-objcopy not found; cannot normalize subsystem for $(basename "$exe_path")"
-    return 0
-  fi
-
-  # Your target policy:
-  # - win7-x64 build should be safe on Windows 7 SP1+ (6.1). Using 6.0 is also acceptable, but 6.1 is explicit.
-  # - win-x64 and win-arm64 are for Windows 10+; keep them consistent.
-  local subsystem_ver="6.1" # Windows 7 SP1+
-  if [[ "$target" == "win-x64" || "$target" == "win-arm64" ]]; then
-    subsystem_ver="10.0" # Windows 10+
-  fi
-
-  # Apply in-place. Non-fatal if it fails.
-  if "$objcopy_bin" --subsystem "console:${subsystem_ver}" "$exe_path" 2>/dev/null; then
-    log_info "binary-check: normalized $(basename "$exe_path") subsystem -> console:${subsystem_ver}"
-  else
-    log_warn "binary-check: failed to normalize subsystem for $(basename "$exe_path")"
-  fi
-
-  return 0
-}
-
 # ==============================================================================
 # BUILD LOGIC
 # ==============================================================================
@@ -340,11 +301,7 @@ build_binary() {
   fi
   chmod +x "$build_dir/$binary_name"
   validate_binary_file "$target" "$build_dir/$binary_name" || true
-  # Windows: pkg output may drift in SubsystemVersion across arches; normalize it.
-  if [[ "$target" == win-* ]] || [[ "$target" == "win7-x64" ]]; then
-    normalize_windows_subsystem "$target" "$build_dir/$binary_name" || true
-  fi
-
+  
   # 5. Copy Static Assets (FFmpeg)
   local ffmpeg_src="$BIN_DIR/$ffmpeg_plat"
   
