@@ -281,7 +281,19 @@ build_binary() {
 	rm -rf "$build_dir"
 	mkdir -p "$build_dir"
 
-	# 2. Build Helpers (Diskspace)
+	# 2. Copy Static Assets (FFmpeg)
+	local ffmpeg_src="$BIN_DIR/$ffmpeg_plat"
+
+	log_info "  -> Copying FFmpeg binaries from $ffmpeg_plat..."
+	if [[ -d "$ffmpeg_src" && -f "$ffmpeg_src/ffmpeg$ext" && -f "$ffmpeg_src/ffprobe$ext" ]]; then
+		cp "$ffmpeg_src"/* "$build_dir/"
+		validate_binary_file "$target" "$build_dir/ffmpeg$ext" || true
+		validate_binary_file "$target" "$build_dir/ffprobe$ext" || true
+	else
+		log_warn "FFmpeg binaries not found in $ffmpeg_src. Build will lack ffmpeg!"
+	fi
+
+	# 3. Build Helpers (Diskspace)
 	local diskspace_src="$TOOLS_DIR/diskspace/src/diskspace.cpp"
 	local bin_diskspace="$BIN_DIR/$ffmpeg_plat/mvd-diskspace$ext"
 	local build_diskspace="$build_dir/mvd-diskspace$ext"
@@ -332,7 +344,7 @@ build_binary() {
 		validate_binary_file "$target" "$build_diskspace" || true
 	fi
 
-	# 3. Build Helpers (FileUI - Windows Only)
+	# 4. Build Helpers (FileUI - Windows Only)
 	if is_windows "$target"; then
 		local fileui_src="$TOOLS_DIR/fileui/src/pick.cpp"
 		local bin_fileui="$BIN_DIR/$ffmpeg_plat/mvd-fileui$ext"
@@ -361,7 +373,7 @@ build_binary() {
 		fi
 	fi
 
-	# 4. Compile Main Binary (pkg / yao-pkg)
+	# 5. Compile Main Binary (pkg / yao-pkg)
 	local packager_name
 	packager_name=$(get_packager_name_for_target "$target")
 	check_npx_tool "$packager_name"
@@ -383,18 +395,6 @@ build_binary() {
 		rm -rf "$transpiled_dir"
 		transpiled_dir=""
 		LEGACY_TRANSPILED_DIR=""
-	fi
-
-	# 5. Copy Static Assets (FFmpeg)
-	local ffmpeg_src="$BIN_DIR/$ffmpeg_plat"
-
-	log_info "  -> Copying FFmpeg binaries from $ffmpeg_plat..."
-	if [[ -d "$ffmpeg_src" && -f "$ffmpeg_src/ffmpeg$ext" && -f "$ffmpeg_src/ffprobe$ext" ]]; then
-		cp "$ffmpeg_src"/* "$build_dir/"
-		validate_binary_file "$target" "$build_dir/ffmpeg$ext" || true
-		validate_binary_file "$target" "$build_dir/ffprobe$ext" || true
-	else
-		log_warn "FFmpeg binaries not found in $ffmpeg_src. Build will lack ffmpeg!"
 	fi
 
 	log_info "✓ Build complete for $target"
