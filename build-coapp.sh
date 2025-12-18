@@ -430,18 +430,15 @@ create_installer() {
 		log_info "  -> Running makensis..."
 		(
 			cd "$nsis_dir"
-			# We rely on installer.nsh producing a fixed name (e.g. mvdcoapp-installer.exe) or we force it?
-			# Assuming standard script from repo. We define VERSION.
-			makensis -DVERSION="$VERSION" installer.nsh
+			makensis -DVERSION="$VERSION" -DOUTFILE="$installer_name" installer.nsh
 		)
 
-		# Check what installer.nsh produced. Usually 'mvdcoapp-installer.exe' defined in .nsh
-		local expected_out="$nsis_dir/mvdcoapp-installer.exe"
-		if [[ -f "$expected_out" ]]; then
-			mv "$expected_out" "$DIST_DIR/$installer_name"
+		local staged_installer="$nsis_dir/$installer_name"
+		if [[ -f "$staged_installer" ]]; then
+			mv "$staged_installer" "$DIST_DIR/$installer_name"
 			log_info "✓ Installer created: dist/$installer_name"
 		else
-			log_error "NSIS failed to produce $expected_out"
+			log_error "NSIS failed to produce $staged_installer"
 			exit 1
 		fi
 		rm -rf "$nsis_dir"
