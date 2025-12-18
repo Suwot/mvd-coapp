@@ -349,12 +349,12 @@ build_binary() {
   local ffmpeg_src="$BIN_DIR/$ffmpeg_plat"
   
   log_info "  -> Copying FFmpeg binaries from $ffmpeg_plat..."
-  if [[ -d "$ffmpeg_src" ]]; then
+  if [[ -d "$ffmpeg_src" && -f "$ffmpeg_src/ffmpeg$ext" && -f "$ffmpeg_src/ffprobe$ext" ]]; then
     cp "$ffmpeg_src"/* "$build_dir/"
     validate_binary_file "$target" "$build_dir/ffmpeg$ext" || true
     validate_binary_file "$target" "$build_dir/ffprobe$ext" || true
   else
-    log_warn "FFmpeg directory not found: $ffmpeg_src. Build will lack ffmpeg!"
+    log_warn "FFmpeg binaries not found in $ffmpeg_src. Build will lack ffmpeg!"
   fi
 
   log_info "✓ Build complete for $target"
@@ -392,7 +392,7 @@ create_installer() {
       cd "$nsis_dir"
       # We rely on installer.nsh producing a fixed name (e.g. mvdcoapp-installer.exe) or we force it?
       # Assuming standard script from repo. We define VERSION.
-      makensis -DVERSION="$VERSION" installer.nsh > /dev/null
+      makensis -DVERSION="$VERSION" installer.nsh
     )
     
     # Check what installer.nsh produced. Usually 'mvdcoapp-installer.exe' defined in .nsh
@@ -466,7 +466,7 @@ EOF
 
     # Ad-hoc sign
     log_info "  -> Signing app bundle..."
-    codesign --force --deep --sign - "$app_name_dir" 2>/dev/null || true
+    codesign --force --deep --sign - "$app_name_dir"
 
     # Create DMG
     log_info "  -> Creating DMG..."
@@ -511,7 +511,7 @@ EOF
     cp "$build_dir"/* "$stage_dir/"
     [[ -f "LICENSE.txt" ]] && cp "LICENSE.txt" "$stage_dir/"
     [[ -f "$RESOURCES_DIR/linux/README.md" ]] && cp "$RESOURCES_DIR/linux/README.md" "$stage_dir/"
-    [[ -f "$RESOURCES_DIR/linux/install.sh" ]] && cp "$RESOURCES_DIR/linux/install.sh" "$stage_dir/"
+    [[ -f "$RESOURCES_DIR/linux/install.sh" && -x "$RESOURCES_DIR/linux/install.sh" ]] && cp "$RESOURCES_DIR/linux/install.sh" "$stage_dir/"
 
     log_info "  -> Creating tarball..."
     tar -czf "$DIST_DIR/$tar_name" -C "$BUILD_ROOT" mvdcoapp
@@ -565,7 +565,6 @@ generate_checksums() {
 
 scan_virustotal() {
   local api_key="$VT_API_KEY"
-  local repo="${VT_GITHUB_REPO:-}"
   if [[ -z "$api_key" ]]; then
     log_warn "VirusTotal API key not found (VT_API_KEY env var)."
     log_warn "To enable scanning, create a .env file with VT_API_KEY=your_key"
@@ -573,8 +572,8 @@ scan_virustotal() {
     return 0
   fi
 
-  if [[ -z "$repo" ]]; then
-    log_warn "VT_GITHUB_REPO not configured; skipping VirusTotal scan."
+  if [[ -z "$RELEASE_REPO" ]]; then
+    log_warn "RELEASE_REPO not configured; skipping VirusTotal scan."
     return 0
   fi
 
@@ -598,7 +597,7 @@ scan_virustotal() {
   for artifact_path in "${artifacts[@]}"; do
     local filename
     filename=$(basename "$artifact_path")
-    local url="https://github.com/$repo/releases/latest/download/$filename"
+    local url="https://github.com/$RELEASE_REPO/releases/latest/download/$filename"
     log_info "Submitting to VirusTotal: $url"
 
     local response
@@ -623,11 +622,18 @@ scan_virustotal() {
 }
 
 publish_release() {
-  local version="$VERSION"
-  log_info "Publishing CoApp artifacts for version $version..."
+  log_info "Publishing CoApp artifacts for version $VERSION..."
 
   check_tool "gh"
   check_tool "git"
+
+  if [[ -z "$RELEASE_REPO" ]]; then
+    RELEASE_REPO="$(cd "$ROOT_DIR" && gh repo view --json owner,name -q '.owner.login + "/" + .name')"
+    if [[ -z "$RELEASE_REPO" ]]; then
+      log_error "Unable to determine release repository. Set RELEASE_REPO in .env or ensure gh is configured."
+      exit 1
+    fi
+  fi
 
   if [[ ! -d "$DIST_DIR" ]]; then
     log_error "dist/ directory not found. Run builds first."
@@ -654,11 +660,6 @@ publish_release() {
   log_info "Found ${#artifacts[@]} CoApp artifacts to upload:"
   printf '  %s\n' "${artifacts[@]}"
 
-  local release_repo="${VT_GITHUB_REPO:-}"
-  if [[ -z "$release_repo" ]]; then
-    release_repo=$(cd "$ROOT_DIR" && gh repo view --json owner,name -q '.owner.login + "/" + .name')
-  fi
-
   generate_checksums
   local checksum_file="$DIST_DIR/checksums.txt"
   if [[ -f "$checksum_file" ]]; then
@@ -669,33 +670,33 @@ publish_release() {
 
   (
     cd "$ROOT_DIR" || exit 1
-    if ! git tag -l | grep -q "^v$version$"; then
-      log_info "Creating git tag v$version..."
-      git tag "v$version"
-      git push origin "v$version"
-      log_info "✓ Created and pushed tag v$version"
+    if ! git tag -l | grep -q "^v$VERSION$"; then
+      log_info "Creating git tag v$VERSION..."
+      git tag "v$VERSION"
+      git push origin "v$VERSION"
+      log_info "✓ Created and pushed tag v$VERSION"
     else
-      log_info "Git tag v$version already exists"
+      log_info "Git tag v$VERSION already exists"
     fi
 
-    if ! gh release view "v$version" &>/dev/null; then
-      log_info "Creating GitHub release v$version..."
-      gh release create "v$version" \
-        --title "CoApp v$version" \
+    if ! gh release view "v$VERSION" &>/dev/null; then
+      log_info "Creating GitHub release v$VERSION..."
+      gh release create "v$VERSION" \
+        --title "CoApp v$VERSION" \
         --generate-notes
-      log_info "✓ Created GitHub release v$version"
+      log_info "✓ Created GitHub release v$VERSION"
     else
-      log_info "GitHub release v$version already exists"
+      log_info "GitHub release v$VERSION already exists"
     fi
   )
 
-  log_info "Uploading to release v$version..."
+  log_info "Uploading to release v$VERSION..."
   if (
     cd "$ROOT_DIR" && \
-    gh release upload "v$version" "${artifacts[@]}" --clobber
+    gh release upload "v$VERSION" "${artifacts[@]}" --clobber
   ); then
-    log_info "✅ Successfully published ${#artifacts[@]} CoApp artifacts for v$version"
-    log_info "📦 Release available at: https://github.com/$release_repo/releases/tag/v$version"
+    log_info "✅ Successfully published ${#artifacts[@]} CoApp artifacts for v$VERSION"
+    log_info "📦 Release available at: https://github.com/$RELEASE_REPO/releases/tag/v$VERSION"
     if [[ "${SCAN_ON_PUBLISH}" == "1" ]]; then
       scan_virustotal
     else
