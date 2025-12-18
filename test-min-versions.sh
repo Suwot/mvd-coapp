@@ -111,10 +111,10 @@ for target_dir in "$BUILD_DIR"/*; do
   for bin in "$target_dir"/*; do
     if [[ -f "$bin" && -x "$bin" ]]; then
       case "$target" in
-        mac-*)
+        mac*)
           check_mac_binary "$bin"
           ;;
-        linux-*)
+        linux*)
           check_linux_binary "$bin"
           ;;
         win*)
