@@ -120,7 +120,7 @@ transpile_sources_for_pkg_target() {
 
 	if ! (
 		cd "$ROOT_DIR" &&
-			npx --yes --no-install "${babel_args[@]}" src --out-dir "$transpiled_dir/src" 1>&2
+			npx --yes --no-install "${babel_args[@]}" src2 --out-dir "$transpiled_dir/src2" 1>&2
 	); then
 		log_error "Babel transpilation failed for $pkg_target."
 		exit 1
@@ -268,14 +268,10 @@ build_binary() {
 	local ext=""
 	if is_windows "$target"; then ext=".exe"; fi
 	local binary_name="$APP_NAME$ext"
-	local pkg_entry="src/index.js"
-	local transpiled_dir=""
-	if is_legacy "$target"; then
-		check_npx_tool "babel"
-		transpile_sources_for_pkg_target "$pkg_target"
-		transpiled_dir="$LEGACY_TRANSPILED_DIR"
-		pkg_entry="$transpiled_dir/src/index.js"
-	fi
+	check_npx_tool "babel"
+	transpile_sources_for_pkg_target "$pkg_target"
+	transpiled_dir="$LEGACY_TRANSPILED_DIR"
+	local pkg_entry="$transpiled_dir/src2/index.js"
 
 	# 1. Prepare Build Directory
 	rm -rf "$build_dir"
@@ -380,10 +376,7 @@ build_binary() {
 	local pkg_npx_cmd="npx --yes $packager_name"
 
 	log_info "  -> Packaging Node.js binary ($pkg_target) using: $pkg_npx_cmd"
-	(
-		export APP_VERSION="$VERSION"
-		$pkg_npx_cmd "$pkg_entry" --target "$pkg_target" --output "$build_dir/$binary_name"
-	)
+	$pkg_npx_cmd "$pkg_entry" --target "$pkg_target" --output "$build_dir/$binary_name"
 
 	if [[ ! -f "$build_dir/$binary_name" ]]; then
 		log_error "pkg failed to create binary at $build_dir/$binary_name"

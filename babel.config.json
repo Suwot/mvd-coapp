@@ -1,5 +1,5 @@
 {
-  "sourceType": "script",
+  "sourceType": "module",
   "presets": [
     [
       "@babel/preset-env",
@@ -8,7 +8,7 @@
           "node": "12"
         },
         "bugfixes": true,
-        "modules": false
+        "modules": "commonjs"
       }
     ]
   ],
