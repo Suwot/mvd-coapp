@@ -115,7 +115,7 @@ transpile_sources_for_pkg_target() {
 	local babel_config="$ROOT_DIR/babel.config.json"
 	rm -rf "$transpiled_dir"
 	mkdir -p "$transpiled_dir"
-	log_info "  -> Transpiling Node sources for legacy target ($pkg_target)..."
+	log_info "  -> Transpiling source for target: $pkg_target..."
 	local babel_args=(babel --extensions ".js,.mjs,.cjs" --copy-files --config-file "$babel_config")
 
 	if ! (

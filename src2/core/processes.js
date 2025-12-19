@@ -4,26 +4,36 @@ import { IS_WINDOWS } from '../utils/config';
 const allProcesses = new Set();
 const processingTasks = new Set();
 let isShuttingDown = false;
+let onProcessCountChange = null;
 
-export function register(child, type = 'general') {
+export function setProcessCountCallback(cb) {
+    onProcessCountChange = cb;
+}
+
+export function getActiveProcessCount() {
+    return allProcesses.size;
+}
+
+export function register(child, options = {}) {
     if (!child || !child.pid) return;
     
+    const { type } = options;
+    
     allProcesses.add(child);
+    if (onProcessCountChange) onProcessCountChange(allProcesses.size);
+
     if (type === 'processing') {
         processingTasks.add(child);
     }
     
     const cleanup = () => {
+        if (!allProcesses.has(child)) return;
         allProcesses.delete(child);
         processingTasks.delete(child);
+        if (onProcessCountChange) onProcessCountChange(allProcesses.size);
     };
     child.once('close', cleanup);
     child.once('error', cleanup);
-}
-
-export function unregister(child) {
-    allProcesses.delete(child);
-    processingTasks.delete(child);
 }
 
 export function killAll(reason = 'shutdown') {

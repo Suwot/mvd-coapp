@@ -68,7 +68,7 @@ async function spawnTool(toolPath, args, options = {}) {
         onComplete
     } = options;
 
-    let finalArgs = [...args];
+    let finalArgs = args.map(arg => typeof arg === 'string' ? arg.trim() : arg);
     let outputPath = null;
 
     if (job?.output && job?.kind === 'preview') {

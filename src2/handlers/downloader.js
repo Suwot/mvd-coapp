@@ -4,6 +4,7 @@ import os from 'os';
 import { logDebug, getFullEnv, getFreeDiskSpace, normalizeForFsWindows } from '../utils/utils';
 import { BINARIES, IS_WINDOWS } from '../utils/config';
 import { handleRunTool } from './tools';
+import { fail, wrapError } from '../utils/errors';
 
 const activeDownloads = new Map();
 // eslint-disable-next-line no-control-regex
@@ -13,9 +14,6 @@ const WINDOWS_RESERVED_NAMES = new Set([
     'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
     'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
 ]);
-
-const STDERR_BUFFER_MAX_BYTES = 32 * 1024;
-const STDERR_BUFFER_MAX_DELAY = 100;
 
 // --- Helpers ---
 function resolveSaveDir(raw) {
@@ -80,22 +78,13 @@ function buildUiPath(fullPath) {
     return fullPath;
 }
 
-function classifyFsError(err) {
-    if (!err || !err.code) return 'fsError';
-    switch (err.code) {
-        case 'ENOENT': case 'ENOTDIR': case 'ELOOP': return 'folderNotFound';
-        case 'EACCES': case 'EPERM': case 'EROFS': return 'directoryNotWritable';
-        default: return 'fsError';
-    }
-}
-
 // --- Main Handler ---
 export async function handleDownload(request, responder) {
     const { command, downloadId } = request;
 
     if (command === 'cancel-download-v2') {
         const entry = activeDownloads.get(downloadId);
-        if (!entry) return { success: false, error: 'Not found' };
+        if (!entry) return { success: false, error: 'Not found', key: 'notFound' };
         
         logDebug(`[Downloader] Canceling ${downloadId}`);
         const { child } = entry;
@@ -109,7 +98,7 @@ export async function handleDownload(request, responder) {
 }
 
 async function startDownload(params, responder) {
-    const { downloadId, argsBeforeOutput, saveDir, filename, container, allowOverwrite = false } = params;
+    const { downloadId, argsBeforeOutput, saveDir, filename, container, allowOverwrite = false, url } = params;
     logDebug(`[Downloader] Starting download ${downloadId} (name: ${filename}, dir: ${saveDir})`);
     
     const resolvedDir = resolveSaveDir(saveDir);
@@ -126,10 +115,10 @@ async function startDownload(params, responder) {
         }
         fs.accessSync(normalizeForFsWindows(resolvedDir), fs.constants.W_OK);
     } catch (err) {
-        const key = classifyFsError(err);
-        logDebug(`[Downloader] FS setup failed for ${resolvedDir}:`, err.message);
-        responder.send({ command: 'download-error', downloadId, key, message: err.message });
-        return { success: false, error: err.message };
+        const wrapped = wrapError(err);
+        logDebug(`[Downloader] FS setup failed for ${resolvedDir}:`, wrapped.message);
+        responder.send({ command: 'download-error', downloadId, key: wrapped.key, message: wrapped.message });
+        return { success: false, error: wrapped.message };
     }
 
     // Disk space report (once at start as per original)
@@ -149,47 +138,16 @@ async function startDownload(params, responder) {
     logDebug(`[Downloader] Path resolved: ${finalPath}`);
     responder.send({ command: 'filename-resolved', downloadId, resolvedFilename: finalFilename, path: uiPath });
 
-    let stderrBuffer = '';
-    let stderrTimer = null;
-
-    const flushStderrBuffer = () => {
-        if (!stderrBuffer) return;
-        responder.send({ command: 'download-progress', downloadId, chunk: stderrBuffer });
-        stderrBuffer = '';
-        if (stderrTimer) {
-            clearTimeout(stderrTimer);
-            stderrTimer = null;
-        }
-    };
-
-    const scheduleStderrFlush = () => {
-        if (stderrTimer) return;
-        stderrTimer = setTimeout(() => {
-            stderrTimer = null;
-            flushStderrBuffer();
-        }, STDERR_BUFFER_MAX_DELAY);
-    };
-
     const spawnResult = await handleRunTool({
         tool: 'ffmpeg',
         args: [...argsBeforeOutput, spawnPath],
         timeoutMs: 0,
-        job: { kind: 'download', id: downloadId }
+        job: { kind: 'download', id: downloadId, url },
+        progressCommand: 'download-progress'
     }, responder, {
-        onSpawn: (child) => activeDownloads.set(downloadId, { child, finalPath }),
-        onStderr: (chunk) => {
-            const text = chunk.toString();
-            if (!text) return;
-            stderrBuffer += text;
-            if (stderrBuffer.length >= STDERR_BUFFER_MAX_BYTES) {
-                flushStderrBuffer();
-            } else {
-                scheduleStderrFlush();
-            }
-        }
+        onSpawn: (child) => activeDownloads.set(downloadId, { child, finalPath })
     });
 
-    flushStderrBuffer();
     activeDownloads.delete(downloadId);
 
     responder.send({

@@ -5,30 +5,46 @@ import { spawn } from 'child_process';
 import { logDebug, getBinaryPaths, normalizeForFsWindows, LOG_FILE } from '../utils/utils';
 import { getLinuxDialog } from '../core/linux-dialog';
 import { register } from '../core/processes';
+import { fail, wrapError } from '../utils/errors';
 
 export async function handleFileSystem(request, responder) {
     const { operation, params = {} } = request;
 
     try {
+        const targetPath = params.path || params.filePath;
+        const normalizedPath = targetPath ? normalizeForFsWindows(targetPath) : null;
+
         switch (operation) {
             case 'exists':
-                return { success: true, exists: fs.existsSync(params.path || params.filePath) };
+                return { success: true, exists: fs.existsSync(normalizedPath) };
             
             case 'mkdir':
-                fs.mkdirSync(params.path || params.filePath, { recursive: true });
+                fs.mkdirSync(normalizedPath, { recursive: true });
                 return { success: true };
 
             case 'readFile':
-                const data = fs.readFileSync(params.path || params.filePath, params.options?.encoding || 'utf8');
-                return { success: true, data };
+                // Use streams for potentially large files (manifests)
+                return new Promise((resolve, reject) => {
+                    if (!fs.existsSync(normalizedPath)) return reject(fail('File not found', 'fileNotFound'));
+                    
+                    const stream = fs.createReadStream(normalizedPath, params.options?.encoding || 'utf8');
+                    let data = '';
+                    stream.on('data', chunk => data += chunk);
+                    stream.on('end', () => resolve({ success: true, data }));
+                    stream.on('error', err => reject(wrapError(err)));
+                });
 
             case 'writeFile':
-                fs.writeFileSync(params.path || params.filePath, params.content, params.options?.encoding || 'utf8');
-                return { success: true };
+                return new Promise((resolve, reject) => {
+                    const stream = fs.createWriteStream(normalizedPath, params.options?.encoding || 'utf8');
+                    stream.write(params.content);
+                    stream.end();
+                    stream.on('finish', () => resolve({ success: true }));
+                    stream.on('error', err => reject(wrapError(err)));
+                });
 
             case 'unlink':
-                const toUnlink = params.path || params.filePath;
-                if (fs.existsSync(toUnlink)) fs.unlinkSync(toUnlink);
+                if (fs.existsSync(normalizedPath)) fs.unlinkSync(normalizedPath);
                 return { success: true };
 
             // --- Enhanced Operations (Parity with FileSystemCommand) ---
@@ -49,11 +65,12 @@ export async function handleFileSystem(request, responder) {
                 return await deleteFile(params, responder);
 
             default:
-                return { success: false, error: `Unknown filesystem operation: ${operation}` };
+                return { success: false, error: `Unknown filesystem operation: ${operation}`, key: 'unknownOperation' };
         }
     } catch (err) {
-        logDebug(`[FS] Operation ${operation} failed:`, err.message);
-        return { success: false, error: err.message, key: err.key };
+        const wrapped = wrapError(err);
+        logDebug(`[FS] Operation ${operation} failed:`, wrapped.message);
+        return { success: false, error: wrapped.message, key: wrapped.key };
     }
 }
 

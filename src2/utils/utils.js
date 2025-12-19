@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
-import { TEMP_DIR, LOG_FILE, BINARIES, IS_WINDOWS } from './config';
+import { TEMP_DIR, LOG_FILE, BINARIES, IS_WINDOWS, LOG_MAX_SIZE, LOG_KEEP_SIZE } from './config';
 
 export { TEMP_DIR, LOG_FILE };
 
@@ -10,15 +10,14 @@ export { TEMP_DIR, LOG_FILE };
  */
 export function logDebug(...args) {
     try {
-        // Sliding window: 10MB hard limit. 
-        // If exceeded, we keep the last 5MB to preserve context without infinite growth.
+        // Sliding window: LOG_MAX_SIZE hard limit. 
+        // If exceeded, we keep the last LOG_KEEP_SIZE to preserve context without infinite growth.
         try {
             const stats = fs.statSync(LOG_FILE);
-            if (stats.size > 10 * 1024 * 1024) {
-                const keepSize = 5 * 1024 * 1024;
+            if (stats.size > LOG_MAX_SIZE) {
                 const fd = fs.openSync(LOG_FILE, 'r');
-                const buffer = Buffer.alloc(keepSize);
-                fs.readSync(fd, buffer, 0, keepSize, stats.size - keepSize);
+                const buffer = Buffer.alloc(LOG_KEEP_SIZE);
+                fs.readSync(fd, buffer, 0, LOG_KEEP_SIZE, stats.size - LOG_KEEP_SIZE);
                 fs.closeSync(fd);
                 
                 const newlineOffset = buffer.indexOf(10); // 10 is '\n'

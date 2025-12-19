@@ -1,12 +1,14 @@
 import fs from 'fs';
 import os from 'os';
-import { ALLOWED_IDS, KNOWN_COMMANDS, IS_MACOS, IS_LINUX, IS_WINDOWS, LOG_FILE, TEMP_DIR, APP_VERSION } from '../utils/config';
-import { logDebug, reportLogStatus } from '../utils/utils';
+import path from 'path';
+import { LOG_FILE, TEMP_DIR, APP_VERSION, IDLE_TIMEOUT, VALIDATION_SCHEMA } from '../utils/config';
+import { logDebug, reportLogStatus, getFreeDiskSpace } from '../utils/utils';
 import { handleDownload } from '../handlers/downloader';
 import { handleFileSystem } from '../handlers/filesystem';
 import { handleRunTool } from '../handlers/tools';
 import { Protocol } from './protocol';
-import { clearProcessing } from './processes';
+import { clearProcessing, getActiveProcessCount, setProcessCountCallback } from './processes';
+import { wrapError, CoAppError } from '../utils/errors';
 
 const HANDLERS = {
     'download-v2': handleDownload,
@@ -20,16 +22,15 @@ const HANDLERS = {
     'quit': async () => { process.exit(0); }
 };
 
-const IDLE_TIMEOUT = 30000;
 let commandCounter = 0;
-let activeOperations = 0;
+let activeHandlers = 0;
 let idleTimer = null;
 let isPipeClosed = false;
 
 function startIdleTimer() {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
-        if (activeOperations === 0) {
+        if (activeHandlers === 0 && getActiveProcessCount() === 0) {
             logDebug('[Router] Idle timeout reached - exiting');
             process.exit(0);
         }
@@ -37,9 +38,22 @@ function startIdleTimer() {
 }
 
 function checkGracefulExit() {
-    if (isPipeClosed && activeOperations === 0) {
+    if (isPipeClosed && activeHandlers === 0 && getActiveProcessCount() === 0) {
         logDebug('[Router] Pipe closed and no active operations - exiting');
         process.exit(0);
+    }
+}
+
+function validateRequest(request) {
+    const schema = VALIDATION_SCHEMA[request.command];
+    if (!schema) return;
+
+    const fields = Array.isArray(schema) ? schema : schema.fields;
+    for (const field of fields) {
+        const value = request[field] !== undefined ? request[field] : (request.params ? request.params[field] : undefined);
+        if (value === undefined) {
+            throw new CoAppError(`Missing required field: ${field}`, 'invalidRequest');
+        }
     }
 }
 
@@ -47,21 +61,22 @@ export async function routeRequest(request, protocol) {
     const handler = HANDLERS[request.command];
     if (!handler) {
         logDebug(`[Router] Unknown command received: ${request.command}`);
-        protocol.send({ error: `Unknown command: ${request.command}` }, request.id);
+        protocol.send({ error: `Unknown command: ${request.command}`, key: 'unknownCommand' }, request.id);
         return;
     }
 
-    const isLongRunning = ['download-v2', 'fileSystem', 'runTool'].includes(request.command);
-    if (isLongRunning) {
-        activeOperations++;
+    try {
+        validateRequest(request);
+
+        activeHandlers++;
         if (idleTimer) {
             clearTimeout(idleTimer);
             idleTimer = null;
         }
-    }
 
-    try {
-        logDebug(`[Router] Routing command: ${request.command} (id: ${request.id})`);
+        // Enhanced logging for debugging
+        const { id, command, ...params } = request;
+        logDebug(`[Router] Routing: ${command} (id: ${id || 'fire-and-forget'})`, params);
         
         // Report log size every 10 commands to keep UI fresh without overhead
         if (++commandCounter % 10 === 0) {
@@ -69,17 +84,16 @@ export async function routeRequest(request, protocol) {
         }
 
         const result = await handler(request, { send: (msg) => protocol.send(msg) });
-        if (result) protocol.send(result, request.id);
+        if (result && request.id) protocol.send(result, request.id);
     } catch (err) {
-        logDebug(`[Router] Error executing ${request.command}:`, err.message);
-        protocol.send({ error: err.message }, request.id);
+        const wrapped = wrapError(err);
+        logDebug(`[Router] Error executing ${request.command}:`, wrapped.message);
+        protocol.send({ error: wrapped.message, key: wrapped.key }, request.id);
     } finally {
-        if (isLongRunning) {
-            activeOperations = Math.max(0, activeOperations - 1);
-            if (activeOperations === 0) {
-                startIdleTimer();
-                checkGracefulExit();
-            }
+        activeHandlers = Math.max(0, activeHandlers - 1);
+        if (activeHandlers === 0) {
+            startIdleTimer();
+            checkGracefulExit();
         }
     }
 }
@@ -92,6 +106,11 @@ export function initializeMessaging() {
             checkGracefulExit();
         }
     );
+
+    // Trigger exit check whenever a child process finishes
+    setProcessCountCallback(() => {
+        if (activeHandlers === 0) checkGracefulExit();
+    });
 
     startIdleTimer();
 

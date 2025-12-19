@@ -37,7 +37,14 @@ try {
 export const TEMP_DIR = tempDir;
 export const LOG_FILE = path.join(TEMP_DIR, 'mvdcoapp.log');
 
-// 3. Binaries
+// 3. Timeouts & Limits
+export const IDLE_TIMEOUT = 30000;
+export const DEFAULT_TOOL_TIMEOUT = 30000;
+export const PREVIEW_TOOL_TIMEOUT = 40000;
+export const LOG_MAX_SIZE = 10 * 1024 * 1024; // 10MB
+export const LOG_KEEP_SIZE = 5 * 1024 * 1024; // 5MB
+
+// 4. Binaries
 const BIN_DIR = IS_PKG ? path.dirname(process.execPath) : path.dirname(__dirname);
 const EXE_EXT = IS_WINDOWS ? '.exe' : '';
 
@@ -48,7 +55,7 @@ export const BINARIES = {
     diskspace: path.join(BIN_DIR, `mvd-diskspace${EXE_EXT}`)
 };
 
-// 4. Constants
+// 5. Constants
 export const ALLOWED_IDS = [
     'bkblnddclhmmgjlmbofhakhhbklkcofd',
     'kjinbaahkmjgkkedfdgpkkelehofieke',
@@ -57,3 +64,10 @@ export const ALLOWED_IDS = [
 ];
 
 export const KNOWN_COMMANDS = ['-h', '--help', '-v', '--version', '-i', '--install', '-u', '--uninstall'];
+
+export const VALIDATION_SCHEMA = {
+    'download-v2': ['downloadId', 'argsBeforeOutput', 'saveDir'],
+    'cancel-download-v2': ['downloadId'],
+    'fileSystem': ['operation'],
+    'runTool': ['tool', 'args']
+};

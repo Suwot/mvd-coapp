@@ -2,11 +2,9 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { logDebug, getFullEnv } from '../utils/utils';
-import { BINARIES, TEMP_DIR } from '../utils/config';
-import { register, unregister } from '../core/processes';
-
-const DEFAULT_TIMEOUT = 30000;
-const PREVIEW_TIMEOUT = 40000;
+import { BINARIES, TEMP_DIR, DEFAULT_TOOL_TIMEOUT, PREVIEW_TOOL_TIMEOUT } from '../utils/config';
+import { register } from '../core/processes';
+import { wrapError } from '../utils/errors';
 
 const quoteForShell = (arg) => `'${String(arg).replace(/'/g, "'\\''")}'`;
 
@@ -17,7 +15,7 @@ const quoteForShell = (arg) => `'${String(arg).replace(/'/g, "'\\''")}'`;
 export async function handleRunTool(params, responder, hooks = {}) {
     // If called from routeRequest, hooks will be empty.
     // If called from handleDownload, hooks will contains onSpawn/onStderr
-    const { tool, args, timeoutMs, job } = params;
+    const { tool, args, timeoutMs, job, progressCommand } = params;
     const { onSpawn, onStderr } = hooks;
     
     if (!tool || !['ffprobe', 'ffmpeg'].includes(tool)) {
@@ -26,7 +24,8 @@ export async function handleRunTool(params, responder, hooks = {}) {
     }
 
     const toolPath = BINARIES[tool];
-    let finalArgs = [...args];
+    // Trim arguments to avoid trailing newlines (especially in headers)
+    let finalArgs = args.map(arg => typeof arg === 'string' ? arg.trim() : arg);
     let outputPath = null;
 
     if (job?.kind === 'preview' && job?.output) {
@@ -35,7 +34,7 @@ export async function handleRunTool(params, responder, hooks = {}) {
         finalArgs.push('-y', outputPath);
     }
 
-    const fallbackTimeout = job?.kind === 'preview' ? PREVIEW_TIMEOUT : DEFAULT_TIMEOUT;
+    const fallbackTimeout = job?.kind === 'preview' ? PREVIEW_TOOL_TIMEOUT : DEFAULT_TOOL_TIMEOUT;
     const effectiveTimeout = typeof timeoutMs === 'number' ? timeoutMs : (job?.kind === 'download' ? 0 : fallbackTimeout);
 
     const fullCommand = [toolPath, ...finalArgs].map(quoteForShell).join(' ');
@@ -44,8 +43,7 @@ export async function handleRunTool(params, responder, hooks = {}) {
     return new Promise((resolve) => {
         const child = spawn(toolPath, finalArgs, { env: getFullEnv() });
         
-        const registrationType = job?.kind === 'download' ? 'general' : 'processing';
-        register(child, registrationType);
+        register(child, job?.kind !== 'download' ? { type: 'processing' } : {});
         
         if (onSpawn) onSpawn(child);
 
@@ -53,28 +51,63 @@ export async function handleRunTool(params, responder, hooks = {}) {
         let stderr = '';
         let timeoutHandle = null;
 
+        // Progress buffering (only if progressCommand is provided)
+        let stderrBuffer = '';
+        let stderrTimer = null;
+
+        const flushStderrBuffer = () => {
+            if (!stderrBuffer) return;
+            responder.send({ 
+                command: progressCommand, 
+                downloadId: job?.id, // Parity with download-v2
+                chunk: stderrBuffer 
+            });
+            stderrBuffer = '';
+            if (stderrTimer) {
+                clearTimeout(stderrTimer);
+                stderrTimer = null;
+            }
+        };
+
         if (effectiveTimeout > 0) {
             timeoutHandle = setTimeout(() => {
                 if (!child.killed) {
                     logDebug(`[Tools] Timeout reached (${effectiveTimeout}ms), killing: ${tool}`);
                     child.kill('SIGTERM');
-                    resolve({ success: false, timeout: true, stdout, stderr, code: null, signal: 'SIGTERM' });
+                    resolve({ success: false, timeout: true, stdout, stderr, code: null, signal: 'SIGTERM', key: 'timeout' });
                 }
             }, effectiveTimeout);
         }
 
         child.stdout?.on('data', d => stdout += d.toString());
         child.stderr?.on('data', d => {
-            stderr += d.toString();
+            const chunk = d.toString();
+            stderr += chunk;
+            
             if (onStderr) onStderr(d);
+
+            if (progressCommand) {
+                stderrBuffer += chunk;
+                if (!stderrTimer) {
+                    stderrTimer = setTimeout(flushStderrBuffer, 100);
+                }
+            }
         });
 
         child.on('close', (code, signal) => {
             if (timeoutHandle) clearTimeout(timeoutHandle);
-            unregister(child);
+            if (stderrTimer) {
+                clearTimeout(stderrTimer);
+                flushStderrBuffer();
+            }
 
-            logDebug(`[Tools] Finished ${tool} with code ${code}${signal ? `, signal ${signal}` : ''}`);
+            const jobInfo = job ? ` (${job.kind}${job.id ? `: ${job.id}` : ''})` : '';
+            logDebug(`[Tools] Finished ${tool}${jobInfo} with code ${code}${signal ? `, signal ${signal}` : ''}`);
             const result = { success: code === 0, code, signal, stdout, stderr };
+
+            if (!result.success && !signal) {
+                result.key = 'toolError';
+            }
 
             // Preview Post-processing
             if (job?.kind === 'preview' && job?.mode === 'imageDataUrl' && outputPath && fs.existsSync(outputPath)) {
@@ -96,9 +129,9 @@ export async function handleRunTool(params, responder, hooks = {}) {
 
         child.on('error', (err) => {
             if (timeoutHandle) clearTimeout(timeoutHandle);
-            unregister(child);
-            logDebug(`[Tools] Process error (${tool}):`, err.message);
-            resolve({ success: false, error: err.message });
+            const wrapped = wrapError(err);
+            logDebug(`[Tools] Process error (${tool}):`, wrapped.message);
+            resolve({ success: false, error: wrapped.message, key: wrapped.key, stdout, stderr });
         });
     });
 }
