@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { LOG_FILE, TEMP_DIR, APP_VERSION, IDLE_TIMEOUT, VALIDATION_SCHEMA } from '../utils/config';
-import { logDebug, reportLogStatus, getFreeDiskSpace, getConnectionInfo, CoAppError } from '../utils/utils';
+import { logDebug, reportLogStatus, checkBinaries, getFreeDiskSpace, getConnectionInfo, CoAppError } from '../utils/utils';
 import { handleDownload } from '../handlers/downloader';
 import { handleFileSystem } from '../handlers/filesystem';
 import { handleRunTool } from '../handlers/tools';
@@ -90,7 +90,12 @@ export async function routeRequest(request, protocol) {
     } catch (err) {
         const key = err.key || err.code || 'internalError';
         logDebug(`[Router] Error executing ${request.command}:`, err.message);
-        protocol.send({ success: false, error: err.message, key }, request.id);
+        protocol.send({ 
+            success: false, 
+            error: err.message, 
+            key,
+            substitutions: err.substitutions || []
+        }, request.id);
     } finally {
         activeHandlers = Math.max(0, activeHandlers - 1);
         if (activeHandlers === 0) {
@@ -118,4 +123,8 @@ export function initializeMessaging() {
 
     // Initial handshake info
     protocol.send(getConnectionInfo());
+
+    // Non-blocking binary check
+    const status = checkBinaries();
+    if (!status.success) protocol.send({ command: 'binary-status', ...status });
 }

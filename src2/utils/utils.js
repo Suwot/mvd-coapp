@@ -65,6 +65,31 @@ export function reportLogStatus(responder) {
 }
 
 /**
+ * Check if required binaries are present.
+ * If name is provided, returns the path or throws CoAppError.
+ * If no name is provided, returns a status object for all platform-specific binaries.
+ */
+export function checkBinaries(name) {
+    if (name) {
+        const binaryPath = BINARIES[name];
+        if (binaryPath && fs.existsSync(binaryPath)) return binaryPath;
+        throw new CoAppError(`${name} not found, please reinstall`, 'binaryNotFound', [name]);
+    }
+
+    const missing = Object.keys(BINARIES).filter(k => BINARIES[k] && !fs.existsSync(BINARIES[k]));
+    if (missing.length > 0) {
+        const namesStr = missing.join(', ');
+        return {
+            success: false,
+            error: `${namesStr} not found, please reinstall`,
+            key: 'binaryNotFound',
+            substitutions: [namesStr]
+        };
+    }
+    return { success: true };
+}
+
+/**
  * Get unified connection and system information
  */
 export function getConnectionInfo() {
@@ -133,22 +158,13 @@ export function normalizeForFsWindows(filePath) {
     }
 }
 
-export function getBinaryPaths() {
-    return {
-        ffmpegPath: BINARIES.ffmpeg,
-        ffprobePath: BINARIES.ffprobe,
-        fileuiPath: BINARIES.fileui,
-        diskspacePath: BINARIES.diskspace
-    };
-}
-
 /**
  * Get free disk space for a specific path using native helper
  */
 export function getFreeDiskSpace(targetPath) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         try {
-            if (!BINARIES.diskspace || !fs.existsSync(BINARIES.diskspace)) return resolve(null);
+            const diskspacePath = checkBinaries('diskspace');
             
             let pathToCheck = path.parse(path.resolve(targetPath)).root;
             if (IS_WINDOWS && !pathToCheck.startsWith('\\\\')) {
@@ -157,13 +173,13 @@ export function getFreeDiskSpace(targetPath) {
                 pathToCheck = normalizeForFsWindows(pathToCheck);
             }
             
-            execFile(BINARIES.diskspace, [pathToCheck], (err, stdout) => {
-                if (err) return resolve(null);
+            execFile(diskspacePath, [pathToCheck], (err, stdout) => {
+                if (err) return reject(new CoAppError(err.message, 'EIO'));
                 const match = stdout?.match(/FREE_BYTES=(\d+)/);
                 resolve(match ? parseInt(match[1], 10) : null);
             });
         } catch (error) {
-            resolve(null);
+            reject(error);
         }
     });
 }
@@ -172,9 +188,10 @@ export function getFreeDiskSpace(targetPath) {
  * CoApp Error Class
  */
 export class CoAppError extends Error {
-    constructor(message, key) {
+    constructor(message, key, substitutions = []) {
         super(message);
         this.key = key;
+        this.substitutions = substitutions;
     }
 }
 

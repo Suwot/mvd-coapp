@@ -2,7 +2,7 @@ import fs, { promises as fsp } from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
-import { logDebug, getBinaryPaths, normalizeForFsWindows, LOG_FILE, CoAppError } from '../utils/utils';
+import { logDebug, normalizeForFsWindows, LOG_FILE, CoAppError, checkBinaries } from '../utils/utils';
 import { getLinuxDialog } from '../core/linux-dialog';
 import { register } from '../core/processes';
 
@@ -185,9 +185,12 @@ async function deleteFile(params) {
 function getOpenFileCommand(filePath) {
     if (os.platform() === 'darwin') return { cmd: 'open', args: [filePath] };
     if (os.platform() === 'win32') {
-        const { fileuiPath } = getBinaryPaths();
-        if (fileuiPath && fs.existsSync(fileuiPath)) return { cmd: fileuiPath, args: ['--mode', 'open-file', '--path', filePath] };
-        return { cmd: 'explorer', args: [filePath] };
+        try {
+            const fileuiPath = checkBinaries('fileui');
+            return { cmd: fileuiPath, args: ['--mode', 'open-file', '--path', filePath] };
+        } catch {
+            return { cmd: 'explorer', args: [filePath] };
+        }
     }
     return { cmd: 'xdg-open', args: [filePath] };
 }
@@ -195,9 +198,12 @@ function getOpenFileCommand(filePath) {
 function getOpenFolderCommand(folderPath) {
     if (os.platform() === 'darwin') return { cmd: 'open', args: [folderPath] };
     if (os.platform() === 'win32') {
-        const { fileuiPath } = getBinaryPaths();
-        if (fileuiPath && fs.existsSync(fileuiPath)) return { cmd: fileuiPath, args: ['--mode', 'open-folder', '--path', folderPath] };
-        return { cmd: 'explorer', args: [folderPath] };
+        try {
+            const fileuiPath = checkBinaries('fileui');
+            return { cmd: fileuiPath, args: ['--mode', 'open-folder', '--path', folderPath] };
+        } catch {
+            return { cmd: 'explorer', args: [folderPath] };
+        }
     }
     return { cmd: 'xdg-open', args: [folderPath] };
 }
@@ -205,9 +211,12 @@ function getOpenFolderCommand(folderPath) {
 function getShowInFolderCommand(filePath) {
     if (os.platform() === 'darwin') return { cmd: 'open', args: ['-R', filePath] };
     if (os.platform() === 'win32') {
-        const { fileuiPath } = getBinaryPaths();
-        if (fileuiPath && fs.existsSync(fileuiPath)) return { cmd: fileuiPath, args: ['--mode', 'reveal', '--path', filePath] };
-        return { cmd: 'explorer', args: ['/select,', filePath] };
+        try {
+            const fileuiPath = checkBinaries('fileui');
+            return { cmd: fileuiPath, args: ['--mode', 'reveal', '--path', filePath] };
+        } catch {
+            return { cmd: 'explorer', args: ['/select,', filePath] };
+        }
     }
     return { cmd: 'xdg-open', args: [path.dirname(filePath)] };
 }
@@ -221,12 +230,7 @@ async function getChooseDirectoryCommand(title, defaultPath) {
         return { cmd: 'osascript', args: ['-e', script] };
     }
     if (os.platform() === 'win32') {
-        const { fileuiPath } = getBinaryPaths();
-        if (!fileuiPath || !fs.existsSync(fileuiPath)) {
-            const err = new Error('Helper not found');
-            err.key = 'fileDialogHelperNotFound';
-            throw err;
-        }
+        const fileuiPath = checkBinaries('fileui');
         const args = ['--mode', 'pick-folder', '--title', title];
         if (defaultPath) args.push('--initial', defaultPath);
         return { cmd: fileuiPath, args };
@@ -243,12 +247,7 @@ async function getChooseSaveLocationCommand(defaultName, title, defaultPath) {
         return { cmd: 'osascript', args: ['-e', script] };
     }
     if (os.platform() === 'win32') {
-        const { fileuiPath } = getBinaryPaths();
-        if (!fileuiPath || !fs.existsSync(fileuiPath)) {
-            const err = new Error('Helper not found');
-            err.key = 'fileDialogHelperNotFound';
-            throw err;
-        }
+        const fileuiPath = checkBinaries('fileui');
         const args = ['--mode', 'save-file', '--title', title, '--name', defaultName];
         if (defaultPath) args.push('--initial', defaultPath);
         else {

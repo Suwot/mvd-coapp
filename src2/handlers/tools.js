@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import fs, { promises as fsp } from 'fs';
 import path from 'path';
-import { logDebug, getFullEnv, CoAppError } from '../utils/utils';
+import { logDebug, getFullEnv, CoAppError, checkBinaries } from '../utils/utils';
 import { BINARIES, TEMP_DIR, DEFAULT_TOOL_TIMEOUT, PREVIEW_TOOL_TIMEOUT } from '../utils/config';
 import { register } from '../core/processes';
 
@@ -22,7 +22,8 @@ export async function handleRunTool(params, responder, hooks = {}) {
         throw new CoAppError(`Invalid tool: ${tool}`, 'EINVAL');
     }
 
-    const toolPath = BINARIES[tool];
+    const toolPath = checkBinaries(tool);
+
     const finalArgs = args.map(arg => typeof arg === 'string' ? arg.trim() : arg);
     let outputPath = null;
 
