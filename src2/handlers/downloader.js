@@ -40,14 +40,14 @@ export async function handleDownload(request, responder) {
 
     if (command === 'cancel-download-v2') {
         const entry = activeDownloads.get(downloadId);
-        if (!entry) return { success: false, from: 'cancel-download-v2', downloadId, error: 'Not found', key: 'ENOENT' };
+        if (!entry) return { success: false, from: command, downloadId, error: 'Not found', key: 'ENOENT' };
         
         logDebug(`[Downloader] Canceling ${downloadId}`);
         const { child } = entry;
         try { if (child.stdin?.writable) child.stdin.write('q\n'); } catch { /* ignore */ }
         setTimeout(() => !child.killed && child.kill('SIGTERM'), 5000);
         setTimeout(() => !child.killed && child.kill('SIGKILL'), 15000);
-        return { success: true, from: 'cancel-download-v2', downloadId };
+        return { success: true, from: command, downloadId };
     }
 
     return startDownload(request, responder);
