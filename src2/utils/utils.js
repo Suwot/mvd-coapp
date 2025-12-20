@@ -162,7 +162,7 @@ export function normalizeForFsWindows(filePath) {
  * Get free disk space for a specific path using native helper
  */
 export function getFreeDiskSpace(targetPath) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         try {
             const diskspacePath = checkBinaries('diskspace');
             
@@ -174,12 +174,12 @@ export function getFreeDiskSpace(targetPath) {
             }
             
             execFile(diskspacePath, [pathToCheck], (err, stdout) => {
-                if (err) return reject(new CoAppError(err.message, 'EIO'));
+                if (err) return resolve(null);
                 const match = stdout?.match(/FREE_BYTES=(\d+)/);
                 resolve(match ? parseInt(match[1], 10) : null);
             });
         } catch (error) {
-            reject(error);
+            resolve(null);
         }
     });
 }

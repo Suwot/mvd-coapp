@@ -72,7 +72,7 @@ async function startDownload(params, responder) {
     } catch (err) {
         const key = err.key || err.code || 'internalError';
         logDebug(`[Downloader] FS setup failed for ${resolvedDir}:`, err.message);
-        return { success: false, command: 'download-error', downloadId, key, error: err.message };
+				return { success: false, command: 'download-error', downloadId, key, error: err.message, substitutions: err.substitutions || [] };
     }
 
     // Disk space report (once at start as per original)
@@ -117,7 +117,8 @@ async function startDownload(params, responder) {
         fileExists: fs.existsSync(finalPath),
         timeout: !!spawnResult.timeout,
         key: spawnResult.key,
-        error: spawnResult.error
+        error: spawnResult.error,
+        substitutions: spawnResult.substitutions
     };
 
     return finalResult;
