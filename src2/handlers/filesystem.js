@@ -2,7 +2,7 @@ import fs, { promises as fsp } from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
-import { logDebug, normalizeForFsWindows, LOG_FILE, CoAppError, checkBinaries } from '../utils/utils';
+import { logDebug, normalizeForFsWindows, CoAppError, checkBinaries } from '../utils/utils';
 import { getLinuxDialog } from '../core/linux-dialog';
 import { register } from '../core/processes';
 
@@ -175,8 +175,7 @@ async function deleteFile(params) {
         success: true,
         operation: 'deleteFile',
         filePath,
-        key: 'fileDeleted',
-        isLogs: filePath === LOG_FILE
+        key: 'fileDeleted'
     };
 }
 
