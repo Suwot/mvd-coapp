@@ -14,6 +14,10 @@ const HANDLERS = {
     'cancel-download-v2': handleDownload,
     'fileSystem': handleFileSystem,
     'runTool': handleRunTool,
+    'get-disk-space': async (req) => {
+        const free = await getFreeDiskSpace(req.path || os.homedir());
+        return { success: true, freeDiskSpace: free };
+    },
     'kill-processing': async () => { 
         const killedCount = clearProcessing('manual');
         return { success: true, from: 'kill-processing', killedCount }; 
