@@ -169,18 +169,14 @@ async function chooseSaveLocation(params) {
 async function deleteFile(params) {
     const { filePath } = params;
     const normalized = normalizeForFsWindows(filePath);
-    if (!fs.existsSync(normalized)) {
-        throw new CoAppError('File not found', 'ENOENT');
-    }
 
     await fsp.unlink(normalized);
-    const isLogs = filePath === LOG_FILE;
     return {
         success: true,
         operation: 'deleteFile',
         filePath,
         key: 'fileDeleted',
-        ...(isLogs && { logFileSize: fs.existsSync(normalized) ? (await fsp.stat(normalized)).size : 0 })
+        isLogs: filePath === LOG_FILE
     };
 }
 
