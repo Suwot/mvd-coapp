@@ -207,26 +207,37 @@ async function showMacOSDialog(browsers, wasUninstall, scope, fromDialog = false
   const list = browsers.map(b => `• ${sanitizeForAppleScript(b.name)}`).join('\\n');
   const text = `${wasUninstall ? 'Removed from' : 'Installed for'} ${browsers.length} browser(s):\\n\\n${list}\\n\\nScope: ${scope}`;
   
-  if (wasUninstall || fromDialog) {
-    spawn('osascript', ['-e', `display dialog "${text}" buttons {"OK"} default button "OK"`]);
-  } else {
-    const child = spawn('osascript', ['-e', `tell application "System Events" to display dialog "${text}" buttons {"Uninstall", "OK"} default button "OK" cancel button "Uninstall"`], { stdio: 'pipe' });
-    let out = '';
-    child.stdout.on('data', d => out += d.toString());
-    child.on('close', (code) => {
-        if (code !== 0 || !out.includes('button returned:OK')) uninstall(true);
-    });
-  }
+  return new Promise((resolve) => {
+    if (wasUninstall || fromDialog) {
+      const child = spawn('osascript', ['-e', `display dialog "${text}" buttons {"OK"} default button "OK"`]);
+      child.on('close', resolve);
+    } else {
+      const child = spawn('osascript', ['-e', `tell application "System Events" to display dialog "${text}" buttons {"Uninstall", "OK"} default button "OK" cancel button "Uninstall"`], { stdio: 'pipe' });
+      let out = '';
+      child.stdout.on('data', d => out += d.toString());
+      child.on('close', async (code) => {
+          if (code !== 0 || !out.includes('button returned:OK')) {
+              await uninstall(true);
+          }
+          resolve();
+      });
+    }
+  });
 }
 
 async function showLinuxDialog(browsers, wasUninstall, scope, fromDialog = false) {
   const list = browsers.map(b => `• ${b.name}`).join('\n');
   const text = `${wasUninstall ? 'Removed from' : 'Installed for'} ${browsers.length} browser(s):\n\n${list}\n\nScope: ${scope}`;
   const cmd = getLinuxModalCommand(wasUninstall ? 'info' : 'question', text, 'MAX Video Downloader CoApp');
-  if (!cmd) return console.log(text);
+  if (!cmd) { console.log(text); return; }
 
-  const child = spawn(cmd.cmd, cmd.args);
-  child.on('close', (code) => {
-    if (!wasUninstall && code !== 0 && !fromDialog) uninstall(true);
+  return new Promise((resolve) => {
+    const child = spawn(cmd.cmd, cmd.args);
+    child.on('close', async (code) => {
+      if (!wasUninstall && code !== 0 && !fromDialog) {
+        await uninstall(true);
+      }
+      resolve();
+    });
   });
 }
