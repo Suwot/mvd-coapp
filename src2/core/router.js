@@ -2,13 +2,12 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { LOG_FILE, TEMP_DIR, APP_VERSION, IDLE_TIMEOUT, VALIDATION_SCHEMA } from '../utils/config';
-import { logDebug, reportLogStatus, getFreeDiskSpace } from '../utils/utils';
+import { logDebug, reportLogStatus, getFreeDiskSpace, CoAppError } from '../utils/utils';
 import { handleDownload } from '../handlers/downloader';
 import { handleFileSystem } from '../handlers/filesystem';
 import { handleRunTool } from '../handlers/tools';
 import { Protocol } from './protocol';
 import { clearProcessing, getActiveProcessCount, setProcessCountCallback } from './processes';
-import { wrapError, CoAppError } from '../utils/errors';
 
 const HANDLERS = {
     'download-v2': handleDownload,
@@ -17,7 +16,7 @@ const HANDLERS = {
     'runTool': handleRunTool,
     'kill-processing': async () => { 
         const killedCount = clearProcessing('manual');
-        return { success: true, killedCount }; 
+        return { success: true, from: 'kill-processing', killedCount }; 
     },
     'quit': async () => { process.exit(0); }
 };
@@ -45,14 +44,13 @@ function checkGracefulExit() {
 }
 
 function validateRequest(request) {
-    const schema = VALIDATION_SCHEMA[request.command];
-    if (!schema) return;
+    const fields = VALIDATION_SCHEMA[request.command];
+    if (!fields) return;
 
-    const fields = Array.isArray(schema) ? schema : schema.fields;
     for (const field of fields) {
-        const value = request[field] !== undefined ? request[field] : (request.params ? request.params[field] : undefined);
+        const value = request[field] ?? request.params?.[field];
         if (value === undefined) {
-            throw new CoAppError(`Missing required field: ${field}`, 'invalidRequest');
+            throw new CoAppError(`Missing required field: ${field}`, 'EINVAL');
         }
     }
 }
@@ -61,7 +59,7 @@ export async function routeRequest(request, protocol) {
     const handler = HANDLERS[request.command];
     if (!handler) {
         logDebug(`[Router] Unknown command received: ${request.command}`);
-        protocol.send({ error: `Unknown command: ${request.command}`, key: 'unknownCommand' }, request.id);
+        protocol.send({ error: `Unknown command: ${request.command}`, key: 'ENOSYS' }, request.id);
         return;
     }
 
@@ -84,11 +82,11 @@ export async function routeRequest(request, protocol) {
         }
 
         const result = await handler(request, { send: (msg) => protocol.send(msg) });
-        if (result && request.id) protocol.send(result, request.id);
+        if (result) protocol.send(result, request.id);
     } catch (err) {
-        const wrapped = wrapError(err);
-        logDebug(`[Router] Error executing ${request.command}:`, wrapped.message);
-        protocol.send({ error: wrapped.message, key: wrapped.key }, request.id);
+        const key = err.key || err.code || 'internalError';
+        logDebug(`[Router] Error executing ${request.command}:`, err.message);
+        protocol.send({ success: false, error: err.message, key }, request.id);
     } finally {
         activeHandlers = Math.max(0, activeHandlers - 1);
         if (activeHandlers === 0) {
@@ -139,6 +137,6 @@ export function initializeMessaging() {
         logsFolder: TEMP_DIR,
         logFile: LOG_FILE,
         logFileSize,
-        capabilities: ['download-v2', 'cancel-download-v2', 'file-system', 'kill-processing', 'run-tool']
+        capabilities: ['download-v2', 'cancel-download-v2', 'fileSystem', 'kill-processing', 'runTool']
     });
 }

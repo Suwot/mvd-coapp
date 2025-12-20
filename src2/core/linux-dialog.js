@@ -2,7 +2,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { logDebug } from '../utils/utils';
+import { logDebug, CoAppError } from '../utils/utils';
 import { pathToFileURL, fileURLToPath } from 'url';
 
 let sessionBus = null;
@@ -165,7 +165,7 @@ export async function getLinuxDialog(type, title, defaultPath, defaultName) {
     const options = { title, defaultPath, defaultName };
     const portalResult = await tryPortalDialog(type, options);
     if (portalResult.path) return { cmd: 'echo', args: [portalResult.path] };
-    if (portalResult.cancelled) throw new Error('Dialog cancelled');
+    if (portalResult.cancelled) throw new CoAppError('Dialog cancelled', 'USER_CANCELLED');
 
     const tool = pickDirectTool();
     if (tool) return runDirectTool(tool, type, options);

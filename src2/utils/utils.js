@@ -1,47 +1,47 @@
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
-import { TEMP_DIR, LOG_FILE, BINARIES, IS_WINDOWS, LOG_MAX_SIZE, LOG_KEEP_SIZE } from './config';
+import { 
+    TEMP_DIR, LOG_FILE, BINARIES, IS_WINDOWS, LOG_MAX_SIZE, LOG_KEEP_SIZE,
+    INVALID_FILENAME_CHARS, WINDOWS_RESERVED_NAMES 
+} from './config';
 
 export { TEMP_DIR, LOG_FILE };
+
+let logCounter = 0;
 
 /**
  * Simplified Logger - Persistent append-only diagnostics
  */
 export function logDebug(...args) {
     try {
-        // Sliding window: LOG_MAX_SIZE hard limit. 
-        // If exceeded, we keep the last LOG_KEEP_SIZE to preserve context without infinite growth.
-        try {
-            const stats = fs.statSync(LOG_FILE);
-            if (stats.size > LOG_MAX_SIZE) {
-                const fd = fs.openSync(LOG_FILE, 'r');
-                const buffer = Buffer.alloc(LOG_KEEP_SIZE);
-                fs.readSync(fd, buffer, 0, LOG_KEEP_SIZE, stats.size - LOG_KEEP_SIZE);
-                fs.closeSync(fd);
-                
-                const newlineOffset = buffer.indexOf(10); // 10 is '\n'
-                const start = newlineOffset === -1 ? 0 : newlineOffset + 1;
-                fs.writeFileSync(LOG_FILE, buffer.slice(start));
-            }
-        } catch { /* ignore */ }
+        // Sliding window cleanup - only check every 100 calls for performance
+        if (++logCounter % 100 === 0) {
+            try {
+                const stats = fs.statSync(LOG_FILE);
+                if (stats.size > LOG_MAX_SIZE) {
+                    const buffer = Buffer.alloc(LOG_KEEP_SIZE);
+                    const fd = fs.openSync(LOG_FILE, 'r');
+                    fs.readSync(fd, buffer, 0, LOG_KEEP_SIZE, stats.size - LOG_KEEP_SIZE);
+                    fs.closeSync(fd);
+                    const start = Math.max(0, buffer.indexOf(10) + 1);
+                    fs.writeFileSync(LOG_FILE, buffer.slice(start));
+                }
+            } catch { /* ignore */ }
+        }
 
         const message = args.map(arg => {
-            if (typeof arg === 'object' && arg !== null) {
-                try {
-                    const seen = new WeakSet();
-                    return JSON.stringify(arg, (key, value) => {
-                        if (typeof value === 'object' && value !== null) {
-                            if (seen.has(value)) return '[Circular]';
-                            seen.add(value);
-                        }
-                        return value;
-                    });
-                } catch (jsonErr) {
-                    return `[Object: ${jsonErr.message}]`;
-                }
-            }
-            return String(arg);
+            if (typeof arg !== 'object' || arg === null) return String(arg);
+            try {
+                const seen = new WeakSet();
+                return JSON.stringify(arg, (k, v) => {
+                    if (typeof v === 'object' && v !== null) {
+                        if (seen.has(v)) return '[Circular]';
+                        seen.add(v);
+                    }
+                    return v;
+                });
+            } catch { return '[Object]'; }
         }).join(' ');
 
         fs.appendFileSync(LOG_FILE, `${new Date().toISOString()} - ${message}\n`);
@@ -136,4 +136,66 @@ export function getFreeDiskSpace(targetPath) {
             resolve(null);
         }
     });
+}
+
+/**
+ * CoApp Error Class
+ */
+export class CoAppError extends Error {
+    constructor(message, key) {
+        super(message);
+        this.key = key;
+    }
+}
+
+/**
+ * Sanitize filename for cross-platform compatibility
+ */
+export function sanitizeFilename(filename, fallback, container) {
+    const raw = filename?.trim() || fallback || 'output';
+    let base = path.basename(raw);
+    
+    // If container is provided, ensure base doesn't already end with it
+    const ext = container ? `.${container.trim().replace(INVALID_FILENAME_CHARS, '')}` : '';
+    if (ext) {
+        const dotExt = ext.toLowerCase();
+        // Strip the extension if it's already there (case-insensitive)
+        while (base.toLowerCase().endsWith(dotExt)) {
+            base = base.slice(0, -dotExt.length);
+        }
+    }
+
+    // Remove invalid chars and trim dots/spaces
+    base = base.replace(INVALID_FILENAME_CHARS, '').replace(/^[.\s]+|[.\s]+$/g, '');
+    if (!base) base = fallback || 'output';
+    if (WINDOWS_RESERVED_NAMES.has(base.toUpperCase())) base += '_';
+    
+    return `${base}${ext}`;
+}
+
+/**
+ * Ensure filename is unique in directory
+ */
+export function ensureUniqueFilename(dir, candidate, isPathInUseCallback) {
+    const lastDot = candidate.lastIndexOf('.');
+    let base, ext;
+    
+    if (lastDot > 0 && !candidate.slice(lastDot).includes(' ')) {
+        base = candidate.slice(0, lastDot);
+        ext = candidate.slice(lastDot);
+    } else {
+        base = candidate;
+        ext = '';
+    }
+
+    let attempt = 0;
+    let candidateName = candidate;
+    let fullPath = path.join(dir, candidateName);
+
+    while (fs.existsSync(fullPath) || (isPathInUseCallback && isPathInUseCallback(fullPath))) {
+        attempt += 1;
+        candidateName = `${base} (${attempt})${ext}`;
+        fullPath = path.join(dir, candidateName);
+    }
+    return candidateName;
 }

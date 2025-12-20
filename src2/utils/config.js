@@ -65,6 +65,13 @@ export const ALLOWED_IDS = [
 
 export const KNOWN_COMMANDS = ['-h', '--help', '-v', '--version', '-i', '--install', '-u', '--uninstall'];
 
+export const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\x00-\x1F]/g; // eslint-disable-line no-control-regex
+export const WINDOWS_RESERVED_NAMES = new Set([
+    'CON', 'PRN', 'AUX', 'NUL',
+    'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+    'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+]);
+
 export const VALIDATION_SCHEMA = {
     'download-v2': ['downloadId', 'argsBeforeOutput', 'saveDir'],
     'cancel-download-v2': ['downloadId'],

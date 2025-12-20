@@ -1,19 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { logDebug, getFullEnv, getFreeDiskSpace, normalizeForFsWindows } from '../utils/utils';
-import { BINARIES, IS_WINDOWS } from '../utils/config';
+import { logDebug, getFreeDiskSpace, normalizeForFsWindows, sanitizeFilename, ensureUniqueFilename } from '../utils/utils';
 import { handleRunTool } from './tools';
-import { fail, wrapError } from '../utils/errors';
 
 const activeDownloads = new Map();
-// eslint-disable-next-line no-control-regex
-const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\x00-\x1F]/g;
-const WINDOWS_RESERVED_NAMES = new Set([
-    'CON', 'PRN', 'AUX', 'NUL',
-    'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
-    'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
-]);
 
 // --- Helpers ---
 function resolveSaveDir(raw) {
@@ -27,46 +18,11 @@ function resolveSaveDir(raw) {
     return path.resolve(expanded);
 }
 
-function sanitizeFilename(filename, fallback, container) {
-    const raw = filename && String(filename).trim() ? filename : (fallback || 'output');
-    const parsed = path.parse(path.basename(raw));
-    let base = parsed.name || fallback || 'output';
-    base = base.replace(INVALID_FILENAME_CHARS, '').replace(/^[.\s]+|[.\s]+$/g, '');
-    if (!base) base = fallback || 'output';
-    if (WINDOWS_RESERVED_NAMES.has(base.toUpperCase())) base += '_';
-
-    const normalizedContainer = container ? String(container).trim().replace(INVALID_FILENAME_CHARS, '') : '';
-    if (normalizedContainer) {
-        const dotExt = `.${normalizedContainer.toLowerCase()}`;
-        while (dotExt && base.toLowerCase().endsWith(dotExt)) {
-            base = base.slice(0, -dotExt.length);
-        }
-    }
-    const extension = normalizedContainer ? `.${normalizedContainer}` : '';
-    return `${base}${extension}`;
-}
-
 function isPathInUse(fullPath) {
     for (const entry of activeDownloads.values()) {
         if (entry?.finalPath === fullPath) return true;
     }
     return false;
-}
-
-function ensureUniqueFilename(dir, candidate) {
-    const parsed = path.parse(candidate);
-    const base = parsed.name;
-    const extension = parsed.ext;
-    let attempt = 0;
-    let candidateName = candidate;
-    let fullPath = path.join(dir, candidateName);
-
-    while (fs.existsSync(fullPath) || isPathInUse(fullPath)) {
-        attempt += 1;
-        candidateName = `${base} (${attempt})${extension}`;
-        fullPath = path.join(dir, candidateName);
-    }
-    return candidateName;
 }
 
 function buildUiPath(fullPath) {
@@ -84,14 +40,14 @@ export async function handleDownload(request, responder) {
 
     if (command === 'cancel-download-v2') {
         const entry = activeDownloads.get(downloadId);
-        if (!entry) return { success: false, error: 'Not found', key: 'notFound' };
+        if (!entry) return { success: false, from: 'cancel-download-v2', downloadId, error: 'Not found', key: 'ENOENT' };
         
         logDebug(`[Downloader] Canceling ${downloadId}`);
         const { child } = entry;
         try { if (child.stdin?.writable) child.stdin.write('q\n'); } catch { /* ignore */ }
         setTimeout(() => !child.killed && child.kill('SIGTERM'), 5000);
         setTimeout(() => !child.killed && child.kill('SIGKILL'), 15000);
-        return { success: true };
+        return { success: true, from: 'cancel-download-v2', downloadId };
     }
 
     return startDownload(request, responder);
@@ -104,8 +60,7 @@ async function startDownload(params, responder) {
     const resolvedDir = resolveSaveDir(saveDir);
     if (!resolvedDir) {
         logDebug(`[Downloader] Failed to resolve saveDir: ${saveDir}`);
-        responder.send({ command: 'download-error', downloadId, key: 'folderNotFound' });
-        return { success: false, error: 'Invalid saveDir' };
+        return { success: false, command: 'download-error', downloadId, key: 'ENOENT', error: 'Invalid saveDir' };
     }
 
     try {
@@ -115,10 +70,9 @@ async function startDownload(params, responder) {
         }
         fs.accessSync(normalizeForFsWindows(resolvedDir), fs.constants.W_OK);
     } catch (err) {
-        const wrapped = wrapError(err);
-        logDebug(`[Downloader] FS setup failed for ${resolvedDir}:`, wrapped.message);
-        responder.send({ command: 'download-error', downloadId, key: wrapped.key, message: wrapped.message });
-        return { success: false, error: wrapped.message };
+        const key = err.key || err.code || 'internalError';
+        logDebug(`[Downloader] FS setup failed for ${resolvedDir}:`, err.message);
+        return { success: false, command: 'download-error', downloadId, key, error: err.message };
     }
 
     // Disk space report (once at start as per original)
@@ -127,9 +81,12 @@ async function startDownload(params, responder) {
     });
 
     const sanitized = sanitizeFilename(filename, `download-${downloadId}`, container);
-    const finalFilename = (allowOverwrite && !isPathInUse(path.join(resolvedDir, sanitized))) 
-        ? sanitized 
-        : ensureUniqueFilename(resolvedDir, sanitized);
+    
+    // If filename already has the extension and we are in allowOverwrite mode (download-as),
+    // we should trust the filename more strictly.
+    const finalFilename = (allowOverwrite && !isPathInUse(path.join(resolvedDir, filename))) 
+        ? filename 
+        : ensureUniqueFilename(resolvedDir, sanitized, isPathInUse);
     
     const finalPath = path.resolve(resolvedDir, finalFilename);
     const spawnPath = normalizeForFsWindows(finalPath);
@@ -150,15 +107,18 @@ async function startDownload(params, responder) {
 
     activeDownloads.delete(downloadId);
 
-    responder.send({
+    const finalResult = {
         command: 'download-finished',
         downloadId,
+        success: spawnResult.success,
         code: spawnResult.code,
         signal: spawnResult.signal,
         path: finalPath,
         fileExists: fs.existsSync(finalPath),
-        timeout: !!spawnResult.timeout
-    });
+        timeout: !!spawnResult.timeout,
+        key: spawnResult.key,
+        error: spawnResult.error
+    };
 
-    return spawnResult;
+    return finalResult;
 }

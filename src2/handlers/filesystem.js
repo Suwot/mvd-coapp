@@ -1,131 +1,96 @@
-import fs from 'fs';
+import fs, { promises as fsp } from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
-import { logDebug, getBinaryPaths, normalizeForFsWindows, LOG_FILE } from '../utils/utils';
+import { logDebug, getBinaryPaths, normalizeForFsWindows, LOG_FILE, CoAppError } from '../utils/utils';
 import { getLinuxDialog } from '../core/linux-dialog';
 import { register } from '../core/processes';
-import { fail, wrapError } from '../utils/errors';
+
+const getPath = (p) => normalizeForFsWindows(p.path || p.filePath);
+
+const FS_HANDLERS = {
+    'exists': async (params) => ({ success: true, exists: fs.existsSync(getPath(params)) }),
+    
+    'mkdir': async (params) => {
+        await fsp.mkdir(getPath(params), { recursive: true });
+        return { success: true };
+    },
+
+    'readFile': async (params) => {
+        const target = getPath(params);
+        if (!fs.existsSync(target)) throw new CoAppError('File not found', 'fileNotFound');
+        const data = await fsp.readFile(target, params.options?.encoding || 'utf8');
+        return { success: true, data };
+    },
+
+    'writeFile': async (params) => {
+        await fsp.writeFile(getPath(params), params.content, params.options?.encoding || 'utf8');
+        return { success: true };
+    },
+
+    'unlink': async (params) => {
+        const target = getPath(params);
+        if (fs.existsSync(target)) await fsp.unlink(target);
+        return { success: true };
+    },
+
+    'openFile': openFile,
+    'showInFolder': showInFolder,
+    'chooseDirectory': chooseDirectory,
+    'chooseSaveLocation': chooseSaveLocation,
+    'deleteFile': deleteFile
+};
 
 export async function handleFileSystem(request, responder) {
     const { operation, params = {} } = request;
-
-    try {
-        const targetPath = params.path || params.filePath;
-        const normalizedPath = targetPath ? normalizeForFsWindows(targetPath) : null;
-
-        switch (operation) {
-            case 'exists':
-                return { success: true, exists: fs.existsSync(normalizedPath) };
-            
-            case 'mkdir':
-                fs.mkdirSync(normalizedPath, { recursive: true });
-                return { success: true };
-
-            case 'readFile':
-                // Use streams for potentially large files (manifests)
-                return new Promise((resolve, reject) => {
-                    if (!fs.existsSync(normalizedPath)) return reject(fail('File not found', 'fileNotFound'));
-                    
-                    const stream = fs.createReadStream(normalizedPath, params.options?.encoding || 'utf8');
-                    let data = '';
-                    stream.on('data', chunk => data += chunk);
-                    stream.on('end', () => resolve({ success: true, data }));
-                    stream.on('error', err => reject(wrapError(err)));
-                });
-
-            case 'writeFile':
-                return new Promise((resolve, reject) => {
-                    const stream = fs.createWriteStream(normalizedPath, params.options?.encoding || 'utf8');
-                    stream.write(params.content);
-                    stream.end();
-                    stream.on('finish', () => resolve({ success: true }));
-                    stream.on('error', err => reject(wrapError(err)));
-                });
-
-            case 'unlink':
-                if (fs.existsSync(normalizedPath)) fs.unlinkSync(normalizedPath);
-                return { success: true };
-
-            // --- Enhanced Operations (Parity with FileSystemCommand) ---
-            
-            case 'openFile':
-                return await openFile(params, responder);
-            
-            case 'showInFolder':
-                return await showInFolder(params, responder);
-            
-            case 'chooseDirectory':
-                return await chooseDirectory(params, responder);
-            
-            case 'chooseSaveLocation':
-                return await chooseSaveLocation(params, responder);
-            
-            case 'deleteFile':
-                return await deleteFile(params, responder);
-
-            default:
-                return { success: false, error: `Unknown filesystem operation: ${operation}`, key: 'unknownOperation' };
-        }
-    } catch (err) {
-        const wrapped = wrapError(err);
-        logDebug(`[FS] Operation ${operation} failed:`, wrapped.message);
-        return { success: false, error: wrapped.message, key: wrapped.key };
-    }
+    const handler = FS_HANDLERS[operation];
+    if (!handler) throw new CoAppError(`Unknown filesystem operation: ${operation}`, 'ENOSYS');
+		
+    return handler(params, responder);
 }
 
-async function openFile(params, responder) {
+async function openFile(params) {
     const { filePath } = params;
-    if (!filePath) throw new Error('File path required');
+    if (!filePath) throw new CoAppError('File path required', 'EINVAL');
     logDebug(`[FS] Request to open file: ${filePath}`);
 
     if (!fs.existsSync(normalizeForFsWindows(filePath))) {
-        const err = new Error('File not found');
-        err.key = 'fileNotFound';
         logDebug(`[FS] openFile failed: File not found at ${filePath}`);
-        throw err;
+        throw new CoAppError('File not found', 'fileNotFound');
     }
 
     const command = getOpenFileCommand(filePath);
     await executeSimple(command.cmd, command.args);
     
-    const result = { success: true, operation: 'openFile', filePath };
-    responder.send(result);
-    return result;
+    return { success: true, operation: 'openFile', filePath };
 }
 
-async function showInFolder(params, responder) {
+async function showInFolder(params) {
     const { filePath, openFolderOnly = false } = params;
-    if (!filePath) throw new Error('File path required');
+    if (!filePath) throw new CoAppError('File path required', 'EINVAL');
     logDebug(`[FS] Request to reveal: ${filePath} (openFolderOnly=${openFolderOnly})`);
 
     let command;
     if (openFolderOnly) {
         const folderPath = path.dirname(filePath);
         if (!fs.existsSync(normalizeForFsWindows(folderPath))) {
-            const err = new Error('Folder not found');
-            err.key = 'folderNotFound';
             logDebug(`[FS] showInFolder fallback failed: Folder not found at ${folderPath}`);
-            throw err;
+            throw new CoAppError('Folder not found', 'folderNotFound');
         }
         command = getOpenFolderCommand(folderPath);
     } else {
         if (!fs.existsSync(normalizeForFsWindows(filePath))) {
-            const err = new Error('File not found');
-            err.key = 'fileNotFound';
             logDebug(`[FS] showInFolder failed: File not found at ${filePath}`);
-            throw err;
+            throw new CoAppError('File not found', 'fileNotFound');
         }
         command = getShowInFolderCommand(filePath);
     }
 
     await executeSimple(command.cmd, command.args);
-    const result = { success: true, operation: 'showInFolder', filePath };
-    responder.send(result);
-    return result;
+    return { success: true, operation: 'showInFolder', filePath };
 }
 
-async function chooseDirectory(params, responder) {
+async function chooseDirectory(params) {
     const { title = 'Choose Directory', defaultPath } = params;
     logDebug(`[FS] Request to choose directory: ${title}`);
 
@@ -136,82 +101,87 @@ async function chooseDirectory(params, responder) {
         
         if (!selectedPath) {
             logDebug('[FS] No path selected by user');
-            const err = new Error('No path selected');
-            err.key = 'pickerCommandFailed';
-            throw err;
+            throw new CoAppError('No path selected', 'EIO');
         }
 
         logDebug(`[FS] User selected directory: ${selectedPath}`);
         await testWritePermissions(selectedPath);
-        const result = { success: true, operation: 'chooseDirectory', selectedPath };
-        responder.send(result);
-        return result;
+        return { success: true, operation: 'chooseDirectory', selectedPath };
     } catch (err) {
-        if (err.key === 'fileDialogHelperNotFound' || err.key === 'pickerCommandFailed') {
-            logDebug(`[FS] Picker failed (${err.key}), attempting writable fallback`);
+        const key = err.key || err.code;
+        if (key === 'USER_CANCELLED') {
+            logDebug('[FS] User cancelled directory picker');
+            return { success: true, operation: 'chooseDirectory', cancelled: true, key: 'USER_CANCELLED' };
+        }
+        if (key === 'ENOENT' || key === 'EIO') {
+            logDebug(`[FS] Picker failed (${key}), attempting writable fallback`);
             const fallback = await findWritableFallbackFolder();
-            if (!fallback) throw new Error('No writable folder found');
+            if (!fallback) throw new CoAppError('No writable folder found', 'EACCES');
             
             logDebug(`[FS] Using fallback directory: ${fallback}`);
-            const result = { success: true, operation: 'chooseDirectory', selectedPath: fallback, isAutoFallback: true, key: err.key };
-            responder.send(result);
-            return result;
+            return { 
+                success: true, 
+                operation: 'chooseDirectory', 
+                selectedPath: fallback, 
+                isAutoFallback: true, 
+                key 
+            };
         }
         throw err;
     }
 }
 
-async function chooseSaveLocation(params, responder) {
+async function chooseSaveLocation(params) {
     const { defaultName = 'untitled', title = 'Save As', defaultPath } = params;
     logDebug(`[FS] Request to choose save location: ${title} (default: ${defaultName})`);
 
-    const command = await getChooseSaveLocationCommand(defaultName, title, defaultPath);
-    const output = await executeSimple(command.cmd, command.args, true);
-    const selectedPath = output.trim().replace(/^\uFEFF/, '');
+    try {
+        const command = await getChooseSaveLocationCommand(defaultName, title, defaultPath);
+        const output = await executeSimple(command.cmd, command.args, true);
+        const selectedPath = output.trim().replace(/^\uFEFF/, '');
 
-    if (!selectedPath) {
-        logDebug('[FS] No save path selected by user');
-        const err = new Error('No path selected');
-        err.key = 'pickerCommandFailed';
+        if (!selectedPath) {
+            logDebug('[FS] No save path selected by user');
+            throw new CoAppError('No path selected', 'ENOENT');
+        }
+
+        logDebug(`[FS] User selected save path: ${selectedPath}`);
+        const directory = path.dirname(selectedPath);
+        await testWritePermissions(directory);
+
+        return {
+            success: true,
+            operation: 'chooseSaveLocation',
+            path: selectedPath,
+            directory,
+            filename: path.basename(selectedPath),
+            willOverwrite: fs.existsSync(normalizeForFsWindows(selectedPath))
+        };
+    } catch (err) {
+        if (err.key === 'USER_CANCELLED') {
+            logDebug('[FS] User cancelled save location picker');
+            return { success: true, operation: 'chooseSaveLocation', cancelled: true, key: 'USER_CANCELLED' };
+        }
         throw err;
     }
-
-    logDebug(`[FS] User selected save path: ${selectedPath}`);
-    const directory = path.dirname(selectedPath);
-    await testWritePermissions(directory);
-
-    const result = {
-        success: true,
-        operation: 'chooseSaveLocation',
-        path: selectedPath,
-        directory,
-        filename: path.basename(selectedPath),
-        willOverwrite: fs.existsSync(normalizeForFsWindows(selectedPath))
-    };
-    responder.send(result);
-    return result;
 }
 
-async function deleteFile(params, responder) {
+async function deleteFile(params) {
     const { filePath } = params;
     const normalized = normalizeForFsWindows(filePath);
     if (!fs.existsSync(normalized)) {
-        const err = new Error('File not found');
-        err.key = 'fileNotFound';
-        throw err;
+        throw new CoAppError('File not found', 'ENOENT');
     }
 
-    fs.unlinkSync(normalized);
+    await fsp.unlink(normalized);
     const isLogs = filePath === LOG_FILE;
-    const result = {
+    return {
         success: true,
         operation: 'deleteFile',
         filePath,
         key: 'fileDeleted',
-        ...(isLogs && { logFileSize: fs.existsSync(normalized) ? fs.statSync(normalized).size : 0 })
+        ...(isLogs && { logFileSize: fs.existsSync(normalized) ? (await fsp.stat(normalized)).size : 0 })
     };
-    responder.send(result);
-    return result;
 }
 
 // --- Platform Command Generators ---
@@ -304,25 +274,21 @@ async function executeSimple(cmd, args, capture = false) {
 
         let out = '';
         let err = '';
-        if (capture) child.stdout.on('data', d => out += d);
-        child.stderr.on('data', d => err += d);
+        if (capture) {
+            child.stdout?.on('data', d => out += d.toString());
+            child.stderr?.on('data', d => err += d.toString());
+        }
 
         child.on('close', (code) => {
             if (code === 0) resolve(out);
             else if (code === 1 && capture) {
-                const cancel = new Error('Cancelled');
-                cancel.key = 'cancelled';
-                reject(cancel);
+                reject(new CoAppError('Cancelled', 'USER_CANCELLED'));
             } else {
-                const fail = new Error(err || `Exit ${code}`);
-                fail.key = 'pickerCommandFailed';
-                reject(fail);
+                reject(new CoAppError(err || `Exit ${code}`, 'EIO'));
             }
         });
         child.on('error', (e) => {
-            const fail = new Error(e.message);
-            fail.key = 'pickerCommandFailed';
-            reject(fail);
+            reject(new CoAppError(e.message, e.code === 'ENOENT' ? 'ENOENT' : 'EIO'));
         });
     });
 }
@@ -331,12 +297,11 @@ async function testWritePermissions(dir) {
     const testFile = path.join(dir, `maxvd_test_${Math.random().toString(36).slice(7)}.tmp`);
     const norm = normalizeForFsWindows(testFile);
     try {
-        fs.writeFileSync(norm, 'test');
-        fs.unlinkSync(norm);
+        await fsp.writeFile(norm, 'test');
+        await fsp.unlink(norm);
     } catch (e) {
-        const err = new Error(`Write failed: ${e.code}`);
-        err.key = (e.code === 'EACCES' || e.code === 'EPERM') ? 'directoryNotWritable' : 'directoryWriteError';
-        throw err;
+        logDebug(`[FS] testWritePermissions failed for ${dir}: ${e.message}`);
+        throw new CoAppError(`Write failed: ${e.code}`, e.code || 'EACCES');
     }
 }
 
@@ -347,7 +312,7 @@ async function findWritableFallbackFolder() {
     ];
     for (const c of candidates) {
         try {
-            fs.mkdirSync(c, { recursive: true });
+            await fsp.mkdir(c, { recursive: true });
             await testWritePermissions(c);
             return c;
         } catch { /* ignore */ }
