@@ -63,7 +63,7 @@ export const ALLOWED_IDS = [
     'max-video-downloader@rostislav.dev'
 ];
 
-export const KNOWN_COMMANDS = ['-h', '--help', '-v', '--version', '-i', '--install', '-u', '--uninstall'];
+export const KNOWN_COMMANDS = ['-h', '--help', '-v', '--version', '--info', '-i', '--install', '-u', '--uninstall'];
 
 export const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\x00-\x1F]/g; // eslint-disable-line no-control-regex
 export const WINDOWS_RESERVED_NAMES = new Set([

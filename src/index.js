@@ -31,7 +31,7 @@ const ALLOWED_IDS = [
     'max-video-downloader@rostislav.dev'
 ];
 
-const KNOWN_COMMANDS = ['-h', '--help', '-v', '--version', '-i', '--install', '-u', '--uninstall'];
+const KNOWN_COMMANDS = ['-h', '--help', '-v', '--version', '-info', '-i', '--install', '-u', '--uninstall'];
 
 (async () => {
     // 1. Install (0 arguments on Mac/Linux triggers install flow)

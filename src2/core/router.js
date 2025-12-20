@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { LOG_FILE, TEMP_DIR, APP_VERSION, IDLE_TIMEOUT, VALIDATION_SCHEMA } from '../utils/config';
-import { logDebug, reportLogStatus, getFreeDiskSpace, CoAppError } from '../utils/utils';
+import { logDebug, reportLogStatus, getFreeDiskSpace, getConnectionInfo, CoAppError } from '../utils/utils';
 import { handleDownload } from '../handlers/downloader';
 import { handleFileSystem } from '../handlers/filesystem';
 import { handleRunTool } from '../handlers/tools';
@@ -116,31 +116,6 @@ export function initializeMessaging() {
 
     startIdleTimer();
 
-    // Get log file size
-    let logFileSize = 0;
-    try {
-        if (fs.existsSync(LOG_FILE)) {
-            logFileSize = fs.statSync(LOG_FILE).size;
-        }
-    } catch { /* ignore */ }
-
-    // Send initial connection info (exact parity with original index.js)
-    protocol.send({
-        command: 'validateConnection',
-        alive: true,
-        success: true,
-        version: APP_VERSION,
-        location: process.execPath,
-        ffmpegVersion: 'n7.1.1-1.7.0',
-        arch: process.arch,
-        platform: process.platform,
-        osRelease: os.release(),
-        osVersion: os.release(),
-        pid: process.pid,
-        lastValidation: Date.now(),
-        logsFolder: TEMP_DIR,
-        logFile: LOG_FILE,
-        logFileSize,
-        capabilities: ['download-v2', 'cancel-download-v2', 'fileSystem', 'kill-processing', 'runTool']
-    });
+    // Initial handshake info
+    protocol.send(getConnectionInfo());
 }

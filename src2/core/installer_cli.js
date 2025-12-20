@@ -1,5 +1,6 @@
 import { IS_MACOS, IS_LINUX, IS_WINDOWS, APP_VERSION } from '../utils/config';
 import { install, uninstall } from './installer';
+import { getConnectionInfo } from '../utils/utils';
 
 export function showUsage() {
     console.log('MVD CoApp - MAX Video Downloader Native Messaging Host');
@@ -7,6 +8,7 @@ export function showUsage() {
     console.log('Usage:');
     console.log('  mvdcoapp -h, --help        Show this help message');
     console.log('  mvdcoapp -v, --version     Show version information');
+    console.log('  mvdcoapp --info            Show system info');
     
     if (IS_WINDOWS) {
         console.log('\nOn Windows, CoApp is managed by the Installer/Uninstaller.');
@@ -40,6 +42,10 @@ export function handleCliArgs(args) {
     }
     if (arg === '-v' || arg === '--version') {
         console.log(`MVD CoApp v${APP_VERSION}`);
+        process.exit(0);
+    }
+    if (arg === '--info') {
+        console.log(JSON.stringify(getConnectionInfo(), null, 2));
         process.exit(0);
     }
     if (arg === '-i' || arg === '--install') {

@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { execFile } from 'child_process';
 import { 
     TEMP_DIR, LOG_FILE, BINARIES, IS_WINDOWS, LOG_MAX_SIZE, LOG_KEEP_SIZE,
-    INVALID_FILENAME_CHARS, WINDOWS_RESERVED_NAMES 
+    INVALID_FILENAME_CHARS, WINDOWS_RESERVED_NAMES, APP_VERSION 
 } from './config';
 
 export { TEMP_DIR, LOG_FILE };
@@ -61,6 +62,35 @@ export function reportLogStatus(responder) {
             logsFolder: TEMP_DIR
         });
     } catch { /* ignore */ }
+}
+
+/**
+ * Get unified connection and system information
+ */
+export function getConnectionInfo() {
+    let logFileSize = 0;
+    try {
+        if (fs.existsSync(LOG_FILE)) logFileSize = fs.statSync(LOG_FILE).size;
+    } catch { /* ignore */ }
+
+    return {
+        command: 'validateConnection',
+        alive: true,
+        success: true,
+        version: APP_VERSION,
+        location: process.execPath,
+        ffmpegVersion: 'n7.1.1-1.7.0',
+        arch: process.arch,
+        platform: process.platform,
+        osRelease: os.release(),
+        osVersion: typeof os.version === 'function' ? os.version() : os.release(), // type check for older node support
+        pid: process.pid,
+        lastValidation: Date.now(),
+        logsFolder: TEMP_DIR,
+        logFile: LOG_FILE,
+        logFileSize,
+        capabilities: ['download-v2', 'cancel-download-v2', 'fileSystem', 'kill-processing', 'runTool', 'get-disk-space']
+    };
 }
 
 /**
