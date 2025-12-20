@@ -5,7 +5,11 @@ import { logDebug, getFullEnv, CoAppError } from '../utils/utils';
 import { BINARIES, TEMP_DIR, DEFAULT_TOOL_TIMEOUT, PREVIEW_TOOL_TIMEOUT } from '../utils/config';
 import { register } from '../core/processes';
 
-const quoteForShell = (arg) => `'${String(arg).replace(/'/g, "'\\''")}'`;
+const quoteForShell = (arg) => {
+    const s = String(arg);
+    if (process.platform === 'win32') return `"${s.replace(/"/g, '""')}"`;
+    return `'${s.replace(/'/g, "'\\''")}'`;
+};
 
 /**
  * Universal Tool Handler
