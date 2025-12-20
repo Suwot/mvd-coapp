@@ -61,19 +61,22 @@ export class Protocol {
         try {
             const payload = requestId ? { ...message, id: requestId } : message;
             
-            // Log outgoing message for diagnostics
-            // Truncate large chunks (like download progress) to avoid log bloat
-            const logPayload = { ...payload };
-            const truncate = (str, max = 500, keep = 400) => {
-                if (typeof str !== 'string' || str.length <= max) return str;
-                return `[truncated ${str.length - keep} bytes] ... ` + str.substring(str.length - keep);
-            };
+            // Skip logging for verbose commands like download-progress
+            if (payload.command !== 'download-progress') {
+                // Log outgoing message for diagnostics
+                // Truncate large chunks (like download progress) to avoid log bloat
+                const logPayload = { ...payload };
+                const truncate = (str, max = 500, keep = 400) => {
+                    if (typeof str !== 'string' || str.length <= max) return str;
+                    return `[truncated ${str.length - keep} bytes] ... ` + str.substring(str.length - keep);
+                };
 
-            if (logPayload.chunk) logPayload.chunk = truncate(logPayload.chunk);
-            if (logPayload.stderr) logPayload.stderr = truncate(logPayload.stderr);
-            if (logPayload.stdout) logPayload.stdout = truncate(logPayload.stdout);
+                if (logPayload.chunk) logPayload.chunk = truncate(logPayload.chunk);
+                if (logPayload.stderr) logPayload.stderr = truncate(logPayload.stderr);
+                if (logPayload.stdout) logPayload.stdout = truncate(logPayload.stdout);
 
-            logDebug('[Protocol] Sending:', logPayload);
+                logDebug('[Protocol] Sending:', logPayload);
+            }
 
             const body = Buffer.from(JSON.stringify(payload), 'utf8');
             const header = Buffer.alloc(4);
