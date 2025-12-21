@@ -100,9 +100,10 @@ get_pkg_target() {
 
 # Packager selection
 # - Legacy Node 12 targets MUST use the classic `pkg` (works reliably with node12 runtimes).
+# - Linux targets use classic `pkg` for lower glibc requirements.
 # - Everything else prefers `@yao-pkg/pkg`.
 get_packager_name_for_target() {
-	if is_legacy "$1"; then
+	if is_legacy "$1" || is_linux "$1"; then
 		echo "pkg"
 	else
 		echo "@yao-pkg/pkg"
