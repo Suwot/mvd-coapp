@@ -170,6 +170,11 @@ async function deleteFile(params) {
     const { filePath } = params;
     const normalized = normalizeForFsWindows(filePath);
 
+    if (!fs.existsSync(normalized)) {
+        logDebug(`[FS] deleteFile failed: File not found at ${normalized}`);
+        throw new CoAppError('File not found', 'fileNotFound');
+    }
+
     await fsp.unlink(normalized);
     return {
         success: true,
