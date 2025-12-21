@@ -1,135 +1,139 @@
-/**
- * Logger – Simple logging utility for application diagnostics
- * - Provides centralized logging functionality
- * - Creates and manages log file storage
- * - Formats log messages with timestamps
- * - Handles object serialization for logging
- * - Ensures log directory structure exists
- * - Exports consistent logging interface
- */
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { execFile } from 'child_process';
+import { 
+    TEMP_DIR, LOG_FILE, BINARIES, IS_WINDOWS, LOG_MAX_SIZE, LOG_KEEP_SIZE,
+    INVALID_FILENAME_CHARS, WINDOWS_RESERVED_NAMES, APP_VERSION 
+} from './config';
 
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+export { TEMP_DIR, LOG_FILE };
 
-// Determine temp directory (create + canonicalize)
-const isSnap = !!(process.env.SNAP || process.env.SNAP_REVISION) || os.tmpdir().includes('snap');
-const cacheBase = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
-const rawTempDir = isSnap ? path.join(cacheBase, 'mvdcoapp') : path.join(os.tmpdir(), 'mvdcoapp');
-
-let tempDir;
-
-try {
-  fs.mkdirSync(rawTempDir, { recursive: true });
-  tempDir = fs.realpathSync(rawTempDir); // canonical absolute path
-} catch {
-  // fallback if realpath fails (rare)
-  tempDir = rawTempDir;
-}
-// Exported constants
-const TEMP_DIR = tempDir;
-const LOG_FILE = path.join(TEMP_DIR, 'mvdcoapp.log');
-// Domains that require HLS query parameter inheritance for proper segment access
-const HLS_INHERIT_QUERY_DOMAINS = [
-    'loom.com'
-    // Add more domains here as needed
-];
+let logCounter = 0;
 
 /**
- * Check if HLS query parameter inheritance should be enabled for a given URL
- * @param {string} url - The URL to check
- * @param {string} type - Media type ('hls', 'dash', etc.)
- * @returns {boolean} Whether to enable hls_inherit_query_params
+ * Simplified Logger - Persistent append-only diagnostics
  */
-function shouldInheritHlsQueryParams(url) {
+export function logDebug(...args) {
     try {
-        const urlObj = new URL(url);
-        const hostname = urlObj.hostname.toLowerCase();
-        return HLS_INHERIT_QUERY_DOMAINS.some(domain => 
-            hostname === domain || hostname.endsWith('.' + domain)
-        );
-    } catch {
-        return false;
-    }
-}
-
-function logDebug(...args) {
-    try {
-        // Check for log rotation (rotate at 10MB)
-        try {
-            const stats = fs.statSync(LOG_FILE);
-            if (stats.size > 10 * 1024 * 1024) { // 10MB
-                const backupFile = `${LOG_FILE}.1`;
-                try {
-                    fs.renameSync(LOG_FILE, backupFile);
-                } catch (rotateErr) {
-                    // If rotation fails, truncate the current file
-                    fs.truncateSync(LOG_FILE, 0);
+        // Sliding window cleanup - only check every 100 calls for performance
+        if (++logCounter % 100 === 0) {
+            try {
+                const stats = fs.statSync(LOG_FILE);
+                if (stats.size > LOG_MAX_SIZE) {
+                    const buffer = Buffer.alloc(LOG_KEEP_SIZE);
+                    const fd = fs.openSync(LOG_FILE, 'r');
+                    fs.readSync(fd, buffer, 0, LOG_KEEP_SIZE, stats.size - LOG_KEEP_SIZE);
+                    fs.closeSync(fd);
+                    const start = Math.max(0, buffer.indexOf(10) + 1);
+                    fs.writeFileSync(LOG_FILE, buffer.slice(start));
                 }
-            }
-        } catch (statErr) {
-            // File doesn't exist yet, that's fine
+            } catch { /* ignore */ }
         }
-        
-        // Safer stringify with circular reference protection
+
         const message = args.map(arg => {
-            if (typeof arg === 'object' && arg !== null) {
-                try {
-                    // Use a WeakSet to track circular references without mutation
-                    const seen = new WeakSet();
-                    return JSON.stringify(arg, (key, value) => {
-                        if (typeof value === 'object' && value !== null) {
-                            if (seen.has(value)) {
-                                return '[Circular]';
-                            }
-                            seen.add(value);
-                        }
-                        return value;
-                    });
-                } catch (jsonErr) {
-                    return `[Object: ${jsonErr.message}]`;
-                }
-            }
-            return arg;
+            if (typeof arg !== 'object' || arg === null) return String(arg);
+            try {
+                const seen = new WeakSet();
+                return JSON.stringify(arg, (k, v) => {
+                    if (typeof v === 'object' && v !== null) {
+                        if (seen.has(v)) return '[Circular]';
+                        seen.add(v);
+                    }
+                    return v;
+                });
+            } catch { return '[Object]'; }
         }).join(' ');
-        
+
         fs.appendFileSync(LOG_FILE, `${new Date().toISOString()} - ${message}\n`);
-    } catch (err) {
-        // Silently drop log lines if writing fails (disk full, permissions, etc.)
-        // This prevents logging from crashing the process
-    }
+    } catch { /* ignore */ }
 }
 
 /**
- * Get binary paths (co-located with executable)
+ * Reports current log statistics to the extension
  */
-function getBinaryPaths() {
-    const dir = typeof process.pkg !== 'undefined' 
-        ? path.dirname(process.execPath)
-        : path.dirname(__dirname);
-    const ext = process.platform === 'win32' ? '.exe' : '';
+export function reportLogStatus(responder) {
+    try {
+        const stats = fs.statSync(LOG_FILE);
+        responder.send({
+            command: 'log-status',
+            logFileSize: stats.size,
+            logFile: LOG_FILE,
+            logsFolder: TEMP_DIR
+        });
+    } catch { /* ignore */ }
+}
+
+/**
+ * Check if required binaries are present.
+ * If name is provided, returns the path or throws CoAppError.
+ * If no name is provided, returns a status object for all platform-specific binaries.
+ */
+export function checkBinaries(name) {
+    if (name) {
+        const binaryPath = BINARIES[name];
+        if (binaryPath && fs.existsSync(binaryPath)) return binaryPath;
+        throw new CoAppError(`${name} not found, please reinstall`, 'binaryNotFound', [name]);
+    }
+
+    const missing = Object.keys(BINARIES).filter(k => BINARIES[k] && !fs.existsSync(BINARIES[k]));
+    if (missing.length > 0) {
+        const namesStr = missing.join(', ');
+        return {
+            success: false,
+            error: `${namesStr} not found, please reinstall`,
+            key: 'binaryNotFound',
+            substitutions: [namesStr]
+        };
+    }
+    return { success: true };
+}
+
+/**
+ * Get unified connection and system information
+ */
+export function getConnectionInfo() {
+    let logFileSize = 0;
+    try {
+        if (fs.existsSync(LOG_FILE)) logFileSize = fs.statSync(LOG_FILE).size;
+    } catch { /* ignore */ }
+
     return {
-        ffmpegPath: path.join(dir, `ffmpeg${ext}`),
-        ffprobePath: path.join(dir, `ffprobe${ext}`),
-        fileuiPath: process.platform === 'win32' ? path.join(dir, `mvd-fileui${ext}`) : null,
-        diskspacePath: path.join(dir, `mvd-diskspace${ext}`)
+        command: 'validateConnection',
+        alive: true,
+        success: true,
+        version: APP_VERSION,
+        location: process.execPath,
+        ffmpegVersion: 'n7.1.1-1.7.0',
+        arch: process.arch,
+        platform: process.platform,
+        osRelease: os.release(),
+        osVersion: typeof os.version === 'function' ? os.version() : os.release(), // type check for older node support
+        pid: process.pid,
+        lastValidation: Date.now(),
+        logsFolder: TEMP_DIR,
+        logFile: LOG_FILE,
+        logFileSize,
+        capabilities: ['download-v2', 'cancel-download-v2', 'fileSystem', 'kill-processing', 'runTool', 'get-disk-space']
     };
+}
+
+/**
+ * High-priority startup event - records entry arguments
+ */
+export function logStartup() {
+    logDebug(`[BOOT] PID: ${process.pid} | platform: ${process.platform} | argv: ${JSON.stringify(process.argv)}`);
 }
 
 /**
  * Get enhanced environment with common system paths
  */
-function getFullEnv() {
-    const extraPaths = [
-        '/opt/homebrew/bin',
-        '/usr/local/bin',
-        '/usr/bin',
-        '/bin',
-        '/usr/sbin',
-        '/sbin'
-    ];
+export function getFullEnv() {
+    const extraPaths = IS_WINDOWS 
+        ? [] 
+        : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
     
-    const pathDelimiter = process.platform === 'win32' ? ';' : ':';
+    const pathDelimiter = IS_WINDOWS ? ';' : ':';
     const pathValue = extraPaths.join(pathDelimiter);
     
     return {
@@ -139,84 +143,106 @@ function getFullEnv() {
 }
 
 /**
- * Normalize path for Windows FS operations, adding \\?\ prefix for long paths (>240 chars)
- * On non-Windows, returns path unchanged
- * Handles both drive paths (C:\...) and UNC paths (\\server\share\...)
- * @param {string} filePath - Path to normalize
- * @returns {string} Normalized path with \\?\ prefix for long Windows paths
+ * Normalize path for Windows FS operations (long path support)
  */
-function normalizeForFsWindows(filePath) {
-    if (process.platform !== 'win32') return filePath;
-
-    // Make absolute path (does not resolve symlinks; only makes path absolute and normalizes . and ..)
+export function normalizeForFsWindows(filePath) {
+    if (!IS_WINDOWS) return filePath;
     const abs = path.resolve(filePath);
-    const isUnc = abs.startsWith('\\\\'); // Decide by type: UNC starts with \\
-    
-    if (abs.startsWith('\\\\?\\')) return abs; // Already extended? Use as-is
-    if (abs.length <= 240) return abs; // Conservative length gate (240 chars cushion for MAX_PATH)
+    if (abs.startsWith('\\\\?\\')) return abs;
+    if (abs.length <= 240) return abs;
 
-    if (isUnc) {
-        return '\\\\?\\UNC\\' + abs.slice(2); // \\server\share\path -> \\?\UNC\server\share\path
+    if (abs.startsWith('\\\\')) {
+        return '\\\\?\\UNC\\' + abs.slice(2);
     } else {
-        return '\\\\?\\' + abs; // C:\path -> \\?\C:\path
+        return '\\\\?\\' + abs;
     }
 }
 
 /**
  * Get free disk space for a specific path using native helper
- * @param {string} targetPath - The path to check
- * @returns {Promise<number|null>} Free space in bytes, or null if check fails
  */
-function getFreeDiskSpace(targetPath) {
+export function getFreeDiskSpace(targetPath) {
     return new Promise((resolve) => {
         try {
-            const { execFile } = require('child_process');
-            const { diskspacePath } = getBinaryPaths();
+            const diskspacePath = checkBinaries('diskspace');
             
-            if (!diskspacePath || !fs.existsSync(diskspacePath)) {
-                logDebug('⚠️ Disk space helper not found:', diskspacePath);
-                return resolve(null);
-            }
-            
-            // This avoids issues with extremely long paths or special characters.
-            let pathToCheck = path.parse(path.resolve(targetPath)).root; // e.g., "C:\" or "/"
-            
-            // On win only normalize UNC root or something unusual.
-            if (process.platform === 'win32' && !pathToCheck.startsWith('\\\\')) {
-                // Keep as is (C:\) - standard APIs handle this fine and it's safer/cleaner
+            let pathToCheck = path.parse(path.resolve(targetPath)).root;
+            if (IS_WINDOWS && !pathToCheck.startsWith('\\\\')) {
+                // Keep as is
             } else {
                 pathToCheck = normalizeForFsWindows(pathToCheck);
             }
             
             execFile(diskspacePath, [pathToCheck], (err, stdout) => {
-                if (err) {
-                    logDebug('Disk space helper failed:', err.message);
-                    return resolve(null);
-                }
-                
-                // Parse output: FREE_BYTES=123456789
-                const match = stdout.match(/FREE_BYTES=(\d+)/);
-                if (match && match[1]) {
-                    resolve(parseInt(match[1], 10));
-                } else {
-                    logDebug('Invalid output from disk space helper:', stdout);
-                    resolve(null);
-                }
+                if (err) return resolve(null);
+                const match = stdout?.match(/FREE_BYTES=(\d+)/);
+                resolve(match ? parseInt(match[1], 10) : null);
             });
         } catch (error) {
-            logDebug('Error spawning disk space helper:', error);
             resolve(null);
         }
     });
 }
 
-module.exports = {
-    logDebug,
-    LOG_FILE,
-    TEMP_DIR,
-    getBinaryPaths,
-    getFullEnv,
-    normalizeForFsWindows,
-    shouldInheritHlsQueryParams,
-    getFreeDiskSpace
-};
+/**
+ * CoApp Error Class
+ */
+export class CoAppError extends Error {
+    constructor(message, key, substitutions = []) {
+        super(message);
+        this.key = key;
+        this.substitutions = substitutions;
+    }
+}
+
+/**
+ * Sanitize filename for cross-platform compatibility
+ */
+export function sanitizeFilename(filename, fallback, container) {
+    const raw = filename?.trim() || fallback || 'output';
+    let base = path.basename(raw);
+    
+    // If container is provided, ensure base doesn't already end with it
+    const ext = container ? `.${container.trim().replace(INVALID_FILENAME_CHARS, '')}` : '';
+    if (ext) {
+        const dotExt = ext.toLowerCase();
+        // Strip the extension if it's already there (case-insensitive)
+        while (base.toLowerCase().endsWith(dotExt)) {
+            base = base.slice(0, -dotExt.length);
+        }
+    }
+
+    // Remove invalid chars and trim dots/spaces
+    base = base.replace(INVALID_FILENAME_CHARS, '').replace(/^[.\s]+|[.\s]+$/g, '');
+    if (!base) base = fallback || 'output';
+    if (WINDOWS_RESERVED_NAMES.has(base.toUpperCase())) base += '_';
+    
+    return `${base}${ext}`;
+}
+
+/**
+ * Ensure filename is unique in directory
+ */
+export function ensureUniqueFilename(dir, candidate, isPathInUseCallback) {
+    const lastDot = candidate.lastIndexOf('.');
+    let base, ext;
+    
+    if (lastDot > 0 && !candidate.slice(lastDot).includes(' ')) {
+        base = candidate.slice(0, lastDot);
+        ext = candidate.slice(lastDot);
+    } else {
+        base = candidate;
+        ext = '';
+    }
+
+    let attempt = 0;
+    let candidateName = candidate;
+    let fullPath = path.join(dir, candidateName);
+
+    while (fs.existsSync(fullPath) || (isPathInUseCallback && isPathInUseCallback(fullPath))) {
+        attempt += 1;
+        candidateName = `${base} (${attempt})${ext}`;
+        fullPath = path.join(dir, candidateName);
+    }
+    return candidateName;
+}

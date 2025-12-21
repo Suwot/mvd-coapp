@@ -110,16 +110,17 @@ get_packager_name_for_target() {
 	fi
 }
 
-bundle_sources_for_pkg_target() {
-	local pkg_target=$1
+bundle_sources_for_target() {
+	local target=$1
+	local pkg_target=$(get_pkg_target "$target")
 	local node_ver=$(echo "$pkg_target" | cut -d'-' -f1)
-	local bundled_dir="$BUILD_ROOT/bundled-$pkg_target"
+	local bundled_dir="$BUILD_ROOT/bundled-$target"
 	rm -rf "$bundled_dir"
 	mkdir -p "$bundled_dir"
 	log_info "  -> Bundling source for target: $pkg_target (Node: $node_ver)..."
 
 	local esbuild_args=(
-		"src2/index.js"
+		"src/index.js"
 		--bundle
 		--platform=node
 		--target="$node_ver"
@@ -277,7 +278,7 @@ build_binary() {
 	if is_windows "$target"; then ext=".exe"; fi
 	local binary_name="$APP_NAME$ext"
 	check_npx_tool "esbuild"
-	bundle_sources_for_pkg_target "$pkg_target"
+	bundle_sources_for_target "$target"
 	local bundled_dir="$LEGACY_TRANSPILED_DIR"
 	local pkg_entry="$bundled_dir/index.js"
 
