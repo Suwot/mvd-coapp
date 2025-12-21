@@ -48,10 +48,12 @@ export function handleCliArgs(args) {
         console.log(JSON.stringify(getConnectionInfo(), null, 2));
         process.exit(0);
     }
-    if (arg === '-i' || arg === '--install') {
-        return runInstallerOperation('install');
-    }
-    if (arg === '-u' || arg === '--uninstall') {
-        return runInstallerOperation('uninstall');
+    if (arg === '-i' || arg === '--install' || arg === '-u' || arg === '--uninstall') {
+        if (IS_WINDOWS) {
+            console.log('\n[Error] On Windows, CoApp is managed by the official Installer/Uninstaller.');
+            console.log('Manual CLI operation is disabled to ensure system stability.\n');
+            process.exit(1);
+        }
+        return runInstallerOperation(arg.includes('u') ? 'uninstall' : 'install');
     }
 }
