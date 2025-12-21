@@ -319,9 +319,7 @@ build_binary() {
 			[[ "$target" == "win-arm64" ]] && compiler="aarch64-w64-mingw32-g++"
 			# Note: For win7-x64 (legacy), we rely on default linking (usually msvcrt or ucrt provided by toolchain).
 			# User requested llvm-mingw.
-			local subsystem_major=6
-			[[ "$target" == "win-arm64" ]] && subsystem_major=10
-			"$compiler" "$diskspace_src" -O2 -s -static -Wl,--major-subsystem-version,${subsystem_major},--minor-subsystem-version,0 -o "$temp_diskspace"
+			"$compiler" "$diskspace_src" -O2 -s -static -Wl,--major-subsystem-version,6,--minor-subsystem-version,0 -o "$temp_diskspace"
 		elif is_mac "$target"; then
 			local mac_cxx
 			mac_cxx=$(xcrun --find clang++)
@@ -367,9 +365,7 @@ build_binary() {
 
 			mkdir -p "$BIN_DIR/$ffmpeg_plat"
 			local temp_fileui="$bin_fileui.tmp"
-			local subsystem_major=6
-			[[ "$target" == "win-arm64" ]] && subsystem_major=10
-			"$compiler" "$fileui_src" -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -Wl,--major-subsystem-version,${subsystem_major},--minor-subsystem-version,0 -o "$temp_fileui"
+			"$compiler" "$fileui_src" -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -Wl,--major-subsystem-version,6,--minor-subsystem-version,0 -o "$temp_fileui"
 			mv "$temp_fileui" "$bin_fileui"
 			cp "$bin_fileui" "$build_fileui"
 			validate_binary_file "$target" "$build_fileui" || true
