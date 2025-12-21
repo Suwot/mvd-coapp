@@ -109,28 +109,35 @@ get_packager_name_for_target() {
 	fi
 }
 
-transpile_sources_for_pkg_target() {
+bundle_sources_for_pkg_target() {
 	local pkg_target=$1
-	local transpiled_dir="$BUILD_ROOT/transpiled-$pkg_target"
-	local babel_config="$ROOT_DIR/babel.config.json"
-	rm -rf "$transpiled_dir"
-	mkdir -p "$transpiled_dir"
-	log_info "  -> Transpiling source for target: $pkg_target..."
-	local babel_args=(babel --extensions ".js,.mjs,.cjs" --copy-files --config-file "$babel_config")
+	local node_ver=$(echo "$pkg_target" | cut -d'-' -f1)
+	local bundled_dir="$BUILD_ROOT/bundled-$pkg_target"
+	rm -rf "$bundled_dir"
+	mkdir -p "$bundled_dir"
+	log_info "  -> Bundling source for target: $pkg_target (Node: $node_ver)..."
 
-	if ! (
-		cd "$ROOT_DIR" &&
-			npx --yes --no-install "${babel_args[@]}" src2 --out-dir "$transpiled_dir/src2" 1>&2
-	); then
-		log_error "Babel transpilation failed for $pkg_target."
+	local esbuild_args=(
+		"src2/index.js"
+		--bundle
+		--platform=node
+		--target="$node_ver"
+		--outfile="$bundled_dir/index.js"
+		--minify
+	)
+
+	# dbus-next and x11 are only needed for Linux. For other platforms, we mark them as external
+	# so they're not bundled into the single-file executable.
+	if [[ "$pkg_target" != *linux* ]]; then
+		esbuild_args+=(--external:dbus-next --external:x11)
+	fi
+
+	if ! npx esbuild "${esbuild_args[@]}"; then
+		log_error "esbuild bundling failed for $pkg_target."
 		exit 1
 	fi
 
-	if [[ -f "$ROOT_DIR/package.json" ]]; then
-		cp "$ROOT_DIR/package.json" "$transpiled_dir/package.json"
-	fi
-
-	LEGACY_TRANSPILED_DIR="$transpiled_dir"
+	LEGACY_TRANSPILED_DIR="$bundled_dir"
 }
 
 get_ffmpeg_platform_dir() {
@@ -268,10 +275,10 @@ build_binary() {
 	local ext=""
 	if is_windows "$target"; then ext=".exe"; fi
 	local binary_name="$APP_NAME$ext"
-	check_npx_tool "babel"
-	transpile_sources_for_pkg_target "$pkg_target"
-	transpiled_dir="$LEGACY_TRANSPILED_DIR"
-	local pkg_entry="$transpiled_dir/src2/index.js"
+	check_npx_tool "esbuild"
+	bundle_sources_for_pkg_target "$pkg_target"
+	local bundled_dir="$LEGACY_TRANSPILED_DIR"
+	local pkg_entry="$bundled_dir/index.js"
 
 	# 1. Prepare Build Directory
 	rm -rf "$build_dir"
@@ -375,8 +382,17 @@ build_binary() {
 	check_npx_tool "$packager_name"
 	local pkg_npx_cmd="npx --yes $packager_name"
 
+	# Only win-arm64 requires --public to prevent immediate crashes.
+	local extra_flags=""
+	if [[ "$target" == "win-arm64" ]]; then
+		extra_flags="--public"
+	fi
+
 	log_info "  -> Packaging Node.js binary ($pkg_target) using: $pkg_npx_cmd"
-	$pkg_npx_cmd "$pkg_entry" --target "$pkg_target" --output "$build_dir/$binary_name"
+	(
+		cd "$bundled_dir"
+		$pkg_npx_cmd "index.js" --target "$pkg_target" --output "$build_dir/$binary_name" $extra_flags
+	)
 
 	if [[ ! -f "$build_dir/$binary_name" ]]; then
 		log_error "pkg failed to create binary at $build_dir/$binary_name"
@@ -384,9 +400,9 @@ build_binary() {
 	fi
 	chmod +x "$build_dir/$binary_name"
 	validate_binary_file "$target" "$build_dir/$binary_name" || true
-	if [[ -n "$transpiled_dir" ]]; then
-		rm -rf "$transpiled_dir"
-		transpiled_dir=""
+	if [[ -n "$bundled_dir" ]]; then
+		rm -rf "$bundled_dir"
+		bundled_dir=""
 		LEGACY_TRANSPILED_DIR=""
 	fi
 
