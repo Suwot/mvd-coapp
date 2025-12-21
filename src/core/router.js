@@ -22,20 +22,25 @@ const HANDLERS = {
         const killedCount = clearProcessing('manual');
         return { success: true, from: 'kill-processing', killedCount }; 
     },
-    'quit': async () => { process.exit(0); }
+    'quit': async () => { 
+        if (messagingProtocol) messagingProtocol.send({ command: 'shutdown', reason: 'quit_command' }); // notify extension
+        setTimeout(() => process.exit(0), 100); 
+    }
 };
 
 let commandCounter = 0;
 let activeHandlers = 0;
 let idleTimer = null;
 let isPipeClosed = false;
+let messagingProtocol = null; // Store protocol for shutdown notifications
 
 function startIdleTimer() {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
         if (activeHandlers === 0 && getActiveProcessCount() === 0) {
             logDebug('[Router] Idle timeout reached - exiting');
-            process.exit(0);
+            if (messagingProtocol) messagingProtocol.send({ command: 'shutdown', reason: 'idle_timeout' }); // notify extension
+            setTimeout(() => process.exit(0), 100);
         }
     }, IDLE_TIMEOUT);
 }
@@ -43,7 +48,8 @@ function startIdleTimer() {
 function checkGracefulExit() {
     if (isPipeClosed && activeHandlers === 0 && getActiveProcessCount() === 0) {
         logDebug('[Router] Pipe closed and no active operations - exiting');
-        process.exit(0);
+        if (messagingProtocol) messagingProtocol.send({ command: 'shutdown', reason: 'pipe_closed' }); // notify extension
+        setTimeout(() => process.exit(0), 100);
     }
 }
 
@@ -113,6 +119,8 @@ export function initializeMessaging() {
             checkGracefulExit();
         }
     );
+
+    messagingProtocol = protocol; // Store for shutdown notifications
 
     // Trigger exit check whenever a child process finishes
     setProcessCountCallback(() => {
