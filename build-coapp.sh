@@ -34,6 +34,13 @@ ALL_TARGETS=(
 	"linux-x64" "linux-arm64"
 )
 
+# Temporary directories for cleanup on interrupt
+TEMP_BUNDLED_DIR=""
+TEMP_BUILD_DIR=""
+TEMP_NSIS_DIR=""
+TEMP_APP_DIR=""
+TEMP_STAGE_DIR=""
+
 # ==============================================================================
 # HELPERS
 # ==============================================================================
@@ -41,6 +48,31 @@ ALL_TARGETS=(
 log_info() { echo -e "\033[32m[INFO]\033[0m $1"; }
 log_warn() { echo -e "\033[33m[WARN]\033[0m $1"; }
 log_error() { echo -e "\033[31m[ERROR]\033[0m $1"; }
+
+cleanup() {
+    log_info "Cleaning up temporary files..."
+    # Unmount any mounted DMG volumes from interrupted builds
+    if command -v hdiutil >/dev/null 2>&1; then
+        # Unmount the known final volume if mounted
+        if [ -d "/Volumes/Max Video Downloader CoApp" ]; then
+            hdiutil detach "/Volumes/Max Video Downloader CoApp" -force >/dev/null 2>&1 || true
+        fi
+        # Unmount temporary DMG images based on their path
+        hdiutil info | awk '
+        /image-path.*rw\.[0-9]+\.mvdcoapp.*\.dmg/ {flag=1}
+        /\/dev\/disk/ {if (flag) {print $1; flag=0}}
+        ' | while read -r dev; do
+            hdiutil detach "$dev" -force >/dev/null 2>&1 || true
+        done
+    fi
+    [[ -n "$TEMP_BUNDLED_DIR" && -d "$TEMP_BUNDLED_DIR" ]] && rm -rf "$TEMP_BUNDLED_DIR"
+    [[ -n "$TEMP_BUILD_DIR" && -d "$TEMP_BUILD_DIR" ]] && rm -rf "$TEMP_BUILD_DIR"
+    [[ -n "$TEMP_NSIS_DIR" && -d "$TEMP_NSIS_DIR" ]] && rm -rf "$TEMP_NSIS_DIR"
+    [[ -n "$TEMP_APP_DIR" && -d "$TEMP_APP_DIR" ]] && rm -rf "$TEMP_APP_DIR"
+    [[ -n "$TEMP_STAGE_DIR" && -d "$TEMP_STAGE_DIR" ]] && rm -rf "$TEMP_STAGE_DIR"
+}
+
+trap cleanup SIGTERM SIGINT
 
 # Target Helper Functions
 is_legacy() { [[ "$1" == "mac10-x64" || "$1" == "win7-x64" ]]; }
@@ -117,6 +149,7 @@ bundle_sources_for_target() {
 	local bundled_dir="$BUILD_ROOT/bundled-$target"
 	rm -rf "$bundled_dir"
 	mkdir -p "$bundled_dir"
+	TEMP_BUNDLED_DIR="$bundled_dir"
 	log_info "  -> Bundling source for target: $pkg_target (Node: $node_ver)..."
 
 	local esbuild_args=(
@@ -285,6 +318,7 @@ build_binary() {
 	# 1. Prepare Build Directory
 	rm -rf "$build_dir"
 	mkdir -p "$build_dir"
+	TEMP_BUILD_DIR="$build_dir"
 
 	# 2. Copy Static Assets (FFmpeg)
 	local ffmpeg_src="$BIN_DIR/$ffmpeg_plat"
@@ -425,6 +459,7 @@ create_installer() {
 		local nsis_dir="$BUILD_ROOT/nsis-$target"
 		rm -rf "$nsis_dir"
 		mkdir -p "$nsis_dir"
+		TEMP_NSIS_DIR="$nsis_dir"
 
 		# Stage files for NSIS
 		cp "$build_dir"/*.exe "$nsis_dir/"
@@ -467,6 +502,7 @@ create_installer() {
 
 		# Create .app bundle structure manually
 		rm -rf "$app_name_dir"
+		TEMP_APP_DIR="$app_name_dir"
 		local macos_dir="$app_name_dir/Contents/MacOS"
 		local resources_dir="$app_name_dir/Contents/Resources"
 		mkdir -p "$macos_dir" "$resources_dir"
@@ -514,7 +550,7 @@ EOF
 
 		# Create DMG
 		log_info "  -> Creating DMG..."
-		rm -f "$DIST_DIR/$dmg_name"
+		rm -f "$build_dir/$dmg_name"
 
 		# Unmount stale if any
 		if [ -d "/Volumes/Max Video Downloader CoApp" ]; then
@@ -534,10 +570,11 @@ EOF
 			--app-drop-link 478 288 \
 			--add-file "README.txt" "resources/mac/README.txt" 734 288 \
 			--hide-extension "${APP_NAME}.app" \
-			"$DIST_DIR/$dmg_name" \
+			"$build_dir/$dmg_name" \
 			"$app_name_dir" >/dev/null
 
-		if [[ -f "$DIST_DIR/$dmg_name" ]]; then
+		if [[ -f "$build_dir/$dmg_name" ]]; then
+			mv "$build_dir/$dmg_name" "$DIST_DIR/$dmg_name"
 			log_info "✓ DMG created: dist/$dmg_name"
 			rm -rf "$app_name_dir"
 		else
@@ -551,6 +588,7 @@ EOF
 		local stage_dir="$BUILD_ROOT/mvdcoapp" # Use generic name in tar
 		rm -rf "$stage_dir"
 		mkdir -p "$stage_dir"
+		TEMP_STAGE_DIR="$stage_dir"
 
 		cp "$build_dir"/* "$stage_dir/"
 		[[ -f "LICENSE.txt" ]] && cp "LICENSE.txt" "$stage_dir/"
