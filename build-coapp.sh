@@ -571,7 +571,7 @@ EOF
 			--add-file "README.txt" "resources/mac/README.txt" 734 288 \
 			--hide-extension "${APP_NAME}.app" \
 			"$build_dir/$dmg_name" \
-			"$app_name_dir" >/dev/null
+			"$app_name_dir"
 
 		if [[ -f "$build_dir/$dmg_name" ]]; then
 			mv "$build_dir/$dmg_name" "$DIST_DIR/$dmg_name"
