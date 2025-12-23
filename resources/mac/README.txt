@@ -1,22 +1,22 @@
-MAX Video Downloader - Companion App (source code: https://github.com/suwot/mvd-coapp)
+MAX Video Downloader – macOS CoApp
+Solo-developed desktop app for the MAX Video Downloader browser extension.
 
-Installation:
-1. Drag "mvdcoapp.app" to your Applications folder
-2. Open Terminal (Applications → Utilities → Terminal.app) and run:
+INSTALLATION:
+1. Drag "mvdcoapp.app" to your Applications folder.
+2. Open Terminal (Applications -> Utilities -> Terminal.app) and run:
 
 xattr -dr com.apple.quarantine "/Applications/mvdcoapp.app" && open "/Applications/mvdcoapp.app"
 
-*This command dequarantines the app so MacOs can launch it.
+*This command removes the macOS Gatekeeper quarantine flag to allow the app to run.
 
-3. A confirmation window will show which browsers were configured
+COMPATIBILITY:
+- Apple Silicon (M1-M4): macOS 11+
+- Intel: macOS 10.15+ (Legacy build available for 10.10+)
+- Browsers: Chrome, Edge, Brave, Vivaldi, Arc. (Firefox: Coming Soon)
 
-This companion app works with the MAX Video Downloader browser extension.
-Download the extension from your browser's web store:
-- Chrome Web Store: https://chrome.google.com/webstore/detail/bkblnddclhmmgjlmbofhakhhbklkcofd?utm_source=mac-dmg&utm_medium=readme
-- Firefox Add-ons: Coming Soon
-- Edge Add-ons: Coming Soon (use Chrome Web Store, it's compatible)
+RESOURCES:
+- Source Code: https://github.com/suwot/mvd-coapp
+- Website: https://www.maxvideodownloader.pro/?utm_source=mac-dmg&utm_medium=readme
 
-
-
-Source code: https://github.com/suwot/mvd-coapp
-Website: https://www.maxvideodownloader.pro/?utm_source=mac-dmg&utm_medium=readme
+LICENSE:
+GPL v3 (GPL-3.0-only) - Free and Open Source. Attribution required.

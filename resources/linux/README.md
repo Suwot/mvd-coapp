@@ -1,51 +1,40 @@
-# MAX Video Downloader - Linux CoApp
-
-Companion application for the MAX Video Downloader browser extension.
-
-This is NOT a standalone app - it only works with the browser extension. It handles video processing and file operations that browser extensions cannot perform due to security restrictions.
+# MAX Video Downloader – Linux CoApp
+Solo-developed companion app for the MAX Video Downloader browser extension.
 
 ## Requirements
-
 Install the browser extension first:  
-[Chrome Web Store](https://chromewebstore.google.com/detail/max-video-downloader-%E2%80%93-do/kjinbaahkmjgkkedfdgpkkelehofieke?utm_source=linux-tar&utm_medium=readme)
+- Chrome Web Store: https://chromewebstore.google.com/detail/max-video-downloader-%E2%80%93-do/kjinbaahkmjgkkedfdgpkkelehofieke?utm_source=linux-tar&utm_medium=readme
+
+- Works with all Chromium-based browsers (Chrome, Edge, Brave, etc.)
+- glibc 2.17+ (x64) or glibc 2.28+ (ARM64)
 
 ## Installation
 
-### Option 1: Manual (you are here)
-1. Extract this archive to any directory, accessible by your Browser (e.g., `~/.local/share/mvdcoapp`)
-2. Double-click `mvdcoapp` to register with your browsers (shows GUI dialog with install/uninstall options)
-3. Or run `./mvdcoapp -install` from terminal for command-line installation
-4. Done! The extension will connect automatically to installed browsers
-
-### Option 2: Auto-Install
+### Option 1: Full setup with one-liner (Recommended)
 Run this command in your terminal for automatic setup:
-
-```bash
+```
 curl -sSLf https://github.com/Suwot/mvd-coapp/releases/latest/download/install.sh | bash
 ```
 
-This will download the latest version, install it to `~/.local/share/mvdcoapp`, and register with your browsers.
+### Option 2: Manual Installation
+1. Extract this archive into a permanent directory (e.g., `~/.local/share/mvdcoapp`).
+2. Double click mvdcoapp or run `./mvdcoapp --install` from the terminal.
+3. It's ready. Make sure browser extension is installed.
 
 ## Commands
-
-- `./mvdcoapp` or `./mvdcoapp -install` - Register with browsers (GUI dialog)
-- `./mvdcoapp -uninstall` - Remove from browsers
-- `./mvdcoapp -version` - Show version info
-- `./mvdcoapp -help` - Show usage help and available commands
-
-## Browser Support
-
-Works with Chromium-based browsers: Chrome, Edge, Brave, Opera, Vivaldi, Arc, etc.  
-Firefox support coming soon.
+- `./mvdcoapp --help` - Show list of available commands
+- `./mvdcoapp --info` - Show system info
+- `./mvdcoapp --install` - Register with browsers
+- `./mvdcoapp --uninstall` - Remove from browsers
+- `./mvdcoapp --version` - Show version info
 
 ## Troubleshooting
-
-- **Permission denied**: Run `chmod +x mvdcoapp` to make executable
-- **Browser not detected**: Restart browser after installation
-- **Flatpak Firefox**: May need additional setup due to sandboxing
-- **Snap browsers**: not supported due to sandboxing
+- **Permission denied:** Run `chmod +x mvdcoapp` to make it executable.
+- **Sandboxing:** Snap/Flatpak browsers are partially supported due to native messaging restrictions. Report on GitHub if your setup is not working.
 
 ## Links
+- Source Code: https://github.com/Suwot/mvd-coapp
+- Website: https://www.maxvideodownloader.pro/?utm_source=linux-tar&utm_medium=readme
 
-- [Source Code](https://github.com/Suwot/mvd-coapp)
-- [Website](https://www.maxvideodownloader.pro/?utm_source=linux-tar&utm_medium=readme)
+## License
+GPL v3 (GPL-3.0-only) - Free and Open Source. Attribution required.
