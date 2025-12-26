@@ -5,10 +5,20 @@ import { logDebug, getFullEnv, CoAppError, checkBinaries } from '../utils/utils'
 import { BINARIES, TEMP_DIR, DEFAULT_TOOL_TIMEOUT, PREVIEW_TOOL_TIMEOUT } from '../utils/config';
 import { register } from '../core/processes';
 
+const MAX_HEAD_TAIL = 128 * 1024; // 128KB
+
 const quoteForShell = (arg) => {
     const s = String(arg);
     if (process.platform === 'win32') return `"${s.replace(/"/g, '""')}"`;
     return `'${s.replace(/'/g, "'\\''")}'`;
+};
+
+const truncateOutput = (output, prefix) => {
+    const totalBytes = Buffer.byteLength(output, 'utf8');
+    const truncated = totalBytes > 2 * MAX_HEAD_TAIL;
+    const head = output.substring(0, MAX_HEAD_TAIL);
+    const tail = truncated ? output.substring(output.length - MAX_HEAD_TAIL) : '';
+    return { [prefix]: head + tail, [prefix + 'Truncated']: truncated, [prefix + 'TotalSize']: totalBytes };
 };
 
 /**
@@ -62,7 +72,7 @@ export async function handleRunTool(params, responder, hooks = {}) {
                     if (!child.killed) {
                         logDebug(`[Tools] Timeout reached (${effectiveTimeout}ms): ${tool}`);
                         child.kill('SIGTERM');
-                        resolve({ success: false, timeout: true, stdout, stderr, code: null, signal: 'SIGTERM', key: 'ETIMEDOUT' });
+                        resolve({ success: false, timeout: true, ...truncateOutput(stdout, 'stdout'), ...truncateOutput(stderr, 'stderr'), code: null, signal: 'SIGTERM', key: 'ETIMEDOUT' });
                     }
                 }, effectiveTimeout);
             }
@@ -84,7 +94,7 @@ export async function handleRunTool(params, responder, hooks = {}) {
 
                 logDebug(`[Tools] Finished ${tool}${job ? ` (${job.kind})` : ''} with code ${code}${signal ? `, signal ${signal}` : ''}`);
                 
-                const result = { success: code === 0, code, signal, stdout, stderr };
+                const result = { success: code === 0, code, signal, ...truncateOutput(stdout, 'stdout'), ...truncateOutput(stderr, 'stderr') };
                 
                 // Map exit state to unique keys
                 // FFmpeg/FFprobe might exit with a code (e.g. 251, 255) instead of a signal when interrupted
@@ -117,8 +127,8 @@ export async function handleRunTool(params, responder, hooks = {}) {
                     success: false, 
                     error: err.message, 
                     key: err.code === 'ENOENT' ? 'ENOENT' : 'EIO', 
-                    stdout, 
-                    stderr 
+                    ...truncateOutput(stdout, 'stdout'), 
+                    ...truncateOutput(stderr, 'stderr')
                 });
             });
         });
