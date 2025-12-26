@@ -29,8 +29,8 @@ LEGACY_TRANSPILED_DIR=""
 
 # Target Definitions
 ALL_TARGETS=(
-	"win-x64" "win-arm64" "win7-x64"
 	"mac-x64" "mac-arm64" "mac10-x64"
+	"win-x64" "win-arm64" "win7-x64"
 	"linux-x64" "linux-arm64"
 )
 
