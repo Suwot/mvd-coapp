@@ -14,11 +14,13 @@ const quoteForShell = (arg) => {
 };
 
 const truncateOutput = (output, prefix) => {
-    const totalBytes = Buffer.byteLength(output, 'utf8');
+    const buffer = Buffer.from(String(output ?? ''), 'utf8');
+    const totalBytes = buffer.length;
     const truncated = totalBytes > 2 * MAX_HEAD_TAIL;
-    const head = output.substring(0, MAX_HEAD_TAIL);
-    const tail = truncated ? output.substring(output.length - MAX_HEAD_TAIL) : '';
-    return { [prefix]: head + tail, [prefix + 'Truncated']: truncated, [prefix + 'TotalSize']: totalBytes };
+    const head = buffer.subarray(0, MAX_HEAD_TAIL).toString('utf8');
+    const tail = truncated ? buffer.subarray(totalBytes - MAX_HEAD_TAIL).toString('utf8') : '';
+    const marker = truncated ? `\n...[truncated ${totalBytes - 2 * MAX_HEAD_TAIL} bytes]...\n` : '';
+    return { [prefix]: head + marker + tail, [prefix + 'Truncated']: truncated, [prefix + 'TotalSize']: totalBytes };
 };
 
 /**
@@ -62,7 +64,16 @@ export async function handleRunTool(params, responder, hooks = {}) {
 
             const flushStderr = () => {
                 if (!stderrBuffer) return;
-                responder.send({ command: progressCommand, downloadId: job?.id, chunk: stderrBuffer });
+                let chunkToSend = stderrBuffer;
+                const bufferBytes = Buffer.byteLength(stderrBuffer, 'utf8');
+                if (bufferBytes > 64 * 1024) { // 64KB cap
+                    const buffer = Buffer.from(stderrBuffer, 'utf8');
+                    const head = buffer.subarray(0, 32 * 1024).toString('utf8');
+                    const tail = buffer.subarray(buffer.length - 32 * 1024).toString('utf8');
+                    const marker = `\n...[progress truncated ${buffer.length - 64 * 1024} bytes]...\n`;
+                    chunkToSend = head + marker + tail;
+                }
+                responder.send({ command: progressCommand, downloadId: job?.id, chunk: chunkToSend });
                 stderrBuffer = '';
                 if (stderrTimer) { clearTimeout(stderrTimer); stderrTimer = null; }
             };
