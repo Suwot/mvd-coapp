@@ -26,6 +26,7 @@ const BROWSERS = {
     { name: 'Brave Browser', type: 'chrome', subPath: 'Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts', configDir: 'Library/Application Support/BraveSoftware/Brave-Browser' },
     { name: 'Brave Browser Nightly', type: 'chrome', subPath: 'Library/Application Support/BraveSoftware/Brave-Browser-Nightly/NativeMessagingHosts', configDir: 'Library/Application Support/BraveSoftware/Brave-Browser-Nightly' },
     { name: 'Opera', type: 'chrome', subPath: 'Library/Application Support/com.operasoftware.Opera/NativeMessagingHosts', configDir: 'Library/Application Support/com.operasoftware.Opera' },
+    { name: 'Opera Developer', type: 'chrome', subPath: 'Library/Application Support/com.operasoftware.OperaDeveloper/NativeMessagingHosts', configDir: 'Library/Application Support/com.operasoftware.OperaDeveloper' },
     { name: 'Vivaldi', type: 'chrome', subPath: 'Library/Application Support/Vivaldi/NativeMessagingHosts', configDir: 'Library/Application Support/Vivaldi' },
     { name: 'Vivaldi Snapshot', type: 'chrome', subPath: 'Library/Application Support/Vivaldi-Snapshot/NativeMessagingHosts', configDir: 'Library/Application Support/Vivaldi-Snapshot' },
     { name: 'Epic Privacy Browser', type: 'chrome', subPath: 'Library/Application Support/Epic Privacy Browser/NativeMessagingHosts', configDir: 'Library/Application Support/Epic Privacy Browser' },
@@ -54,6 +55,7 @@ const BROWSERS = {
       { name: 'Vivaldi', type: 'chrome', path: '.config/vivaldi/NativeMessagingHosts', configDir: '.config/vivaldi' },
       { name: 'Vivaldi Snapshot', type: 'chrome', path: '.config/vivaldi-snapshot/NativeMessagingHosts', configDir: '.config/vivaldi-snapshot' },
       { name: 'Opera', type: 'chrome', path: '.config/opera/NativeMessagingHosts', configDir: '.config/opera' },
+      { name: 'Opera (Developer)', type: 'chrome', path: '.config/opera-developer/NativeMessagingHosts', configDir: '.config/opera-developer' },
       { name: 'Yandex Browser', type: 'chrome', path: '.config/yandex-browser/NativeMessagingHosts', configDir: '.config/yandex-browser' },
 
       // Firefox family
@@ -69,7 +71,9 @@ const BROWSERS = {
 
       // Snap packages (sandboxed) - both current/ and common/ for all revisions
       { name: 'Chromium (Snap common)', type: 'chrome', path: 'snap/chromium/common/chromium/NativeMessagingHosts', configDir: 'snap/chromium' },
-      { name: 'Chromium (Snap current)', type: 'chrome', path: 'snap/chromium/current/chromium/NativeMessagingHosts', configDir: 'snap/chromium' }
+      { name: 'Chromium (Snap current)', type: 'chrome', path: 'snap/chromium/current/chromium/NativeMessagingHosts', configDir: 'snap/chromium' },
+      { name: 'Vivaldi (Snap common)', type: 'chrome', path: 'snap/vivaldi/common/.config/vivaldi/NativeMessagingHosts', configDir: 'snap/vivaldi' },
+      { name: 'Vivaldi (Snap current)', type: 'chrome', path: 'snap/vivaldi/current/.config/vivaldi/NativeMessagingHosts', configDir: 'snap/vivaldi' }
     ],
 
     // SYSTEM: always write; no checks needed
@@ -79,7 +83,7 @@ const BROWSERS = {
       { name: 'Chromium', type: 'chrome', path: '/etc/chromium/native-messaging-hosts' },
       { name: 'Brave Browser', type: 'chrome', path: '/etc/brave/native-messaging-hosts' },
       { name: 'Brave Browser (/opt)', type: 'chrome', path: '/etc/opt/brave/native-messaging-hosts' },
-      { name: 'Microsoft Edge', type: 'chrome', path: '/etc/opt/microsoft-edge/native-messaging-hosts' },
+      { name: 'Microsoft Edge', type: 'chrome', path: '/etc/opt/edge/native-messaging-hosts' },
       { name: 'Opera', type: 'chrome', path: '/etc/opt/opera/native-messaging-hosts' },
       { name: 'Vivaldi', type: 'chrome', path: '/etc/opt/vivaldi/native-messaging-hosts' },
       { name: 'Yandex Browser', type: 'chrome', path: '/etc/opt/yandex-browser/native-messaging-hosts' },
