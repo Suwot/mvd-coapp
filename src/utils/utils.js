@@ -104,7 +104,7 @@ export function getConnectionInfo() {
         success: true,
         version: APP_VERSION,
         location: process.execPath,
-        ffmpegVersion: 'n7.1.1-1.7.0',
+        ffmpegVersion: 'n8.0.1-1.7.1',
         arch: process.arch,
         platform: process.platform,
         osRelease: os.release(),
