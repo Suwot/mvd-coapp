@@ -212,20 +212,25 @@ async function showMacOSDialog(browsers, wasUninstall, scope, fromDialog = false
   const text = `${wasUninstall ? 'Removed from' : 'Installed for'} ${browsers.length} browser(s):\\n\\n${list}\\n\\nScope: ${scope}`;
   
   return new Promise((resolve) => {
-    if (wasUninstall || fromDialog) {
-      const child = spawn('osascript', ['-e', `display dialog "${text}" buttons {"OK"} default button "OK"`]);
-      child.on('close', resolve);
-    } else {
-      const child = spawn('osascript', ['-e', `tell application "System Events" to display dialog "${text}" buttons {"Uninstall", "OK"} default button "OK" cancel button "Uninstall"`], { stdio: 'pipe' });
-      let out = '';
-      child.stdout.on('data', d => out += d.toString());
-      child.on('close', async (code) => {
-          if (code !== 0 || !out.includes('button returned:OK')) {
-              await uninstall(true);
-          }
-          resolve();
-      });
-    }
+    // We avoid "tell application System Events" to bypass Automation permission requirements.
+    // Plain "display dialog" works fine for the installer context.
+    const script = (wasUninstall || fromDialog)
+      ? `display dialog "${text}" buttons {"OK"} default button "OK" with title "MAX Video Downloader"`
+      : `display dialog "${text}" buttons {"Uninstall", "OK"} default button "OK" with title "MAX Video Downloader"`;
+
+    const child = spawn('osascript', ['-e', script], { stdio: 'pipe' });
+    let out = '';
+    child.stdout.on('data', d => out += d.toString());
+
+    child.on('close', async () => {
+        // Only trigger uninstallation if the user explicitly clicked the "Uninstall" button.
+        // We check the stdout for the button name.
+        if (!wasUninstall && !fromDialog && out.includes('button returned:Uninstall')) {
+            logDebug('[Installer] User clicked Uninstall in success dialog.');
+            await uninstall(true);
+        }
+        resolve();
+    });
   });
 }
 
