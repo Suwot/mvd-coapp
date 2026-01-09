@@ -21,6 +21,7 @@ DIST_DIR="$ROOT_DIR/dist"
 if [[ -f "$ROOT_DIR/.env" ]]; then
 	# shellcheck disable=SC1090
 	source "$ROOT_DIR/.env"
+	export VT_API_KEY
 fi
 
 # Optional: llvm-mingw toolchain root (used only for Windows cross-compilation)
@@ -646,61 +647,21 @@ generate_checksums() {
 }
 
 scan_virustotal() {
-	local api_key="$VT_API_KEY"
-	if [[ -z "$api_key" ]]; then
+	if [[ -z "$VT_API_KEY" ]]; then
 		log_warn "VirusTotal API key not found (VT_API_KEY env var)."
 		log_warn "To enable scanning, create a .env file with VT_API_KEY=your_key"
 		log_warn "See coapp/.env.example for reference."
 		return 0
 	fi
 
-	if [[ -z "$RELEASE_REPO" ]]; then
-		log_warn "RELEASE_REPO not configured; skipping VirusTotal scan."
+	if ! command -v node >/dev/null 2>&1; then
+		log_warn "node not found. Skipping VirusTotal scan."
 		return 0
 	fi
 
-	if ! command -v curl >/dev/null 2>&1; then
-		log_warn "curl not found. Skipping VirusTotal scan."
-		return 0
-	fi
-
-	log_info "Requesting VirusTotal scans for binaries..."
-
-	local artifacts=()
-	while IFS=$'\0' read -r -d '' file; do
-		artifacts+=("$file")
-	done < <(find "$DIST_DIR" -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.tar.gz" \) -print0)
-
-	if [[ ${#artifacts[@]} -eq 0 ]]; then
-		log_warn "No distributable artifacts found in dist/ for VirusTotal scan."
-		return 0
-	fi
-
-	for artifact_path in "${artifacts[@]}"; do
-		local filename
-		filename=$(basename "$artifact_path")
-		local url="https://github.com/$RELEASE_REPO/releases/latest/download/$filename"
-		log_info "Submitting to VirusTotal: $url"
-
-		local response
-		if ! response=$(curl --silent --show-error --fail \
-			--write-out "HTTPSTATUS:%{http_code}" \
-			--request POST \
-			--url https://www.virustotal.com/api/v3/urls \
-			--header "x-apikey: $api_key" \
-			--form "url=$url"); then
-			log_warn "VirusTotal request failed for $filename"
-			continue
-		fi
-
-		local http_status=${response##*HTTPSTATUS:}
-		local body=${response%HTTPSTATUS:*}
-		if [[ "$body" == *"\"id\":"* ]]; then
-			log_info "✓ Scan request submitted for $filename"
-		else
-			log_warn "VirusTotal scan response missing id (status $http_status) for $filename"
-		fi
-	done
+	log_info "Fetching VirusTotal URL reports via Node script..."
+	node "$ROOT_DIR/scripts/vt-scan.js" --dist "$DIST_DIR"
+	return $?
 }
 
 publish_release() {
@@ -798,11 +759,12 @@ COMMAND=$1
 TARGET=$2
 
 # Validate Command
-if [[ "$COMMAND" != "build" && "$COMMAND" != "dist" && "$COMMAND" != "publish" ]]; then
+if [[ "$COMMAND" != "build" && "$COMMAND" != "dist" && "$COMMAND" != "publish" && "$COMMAND" != "scan" ]]; then
 	echo "Usage:"
 	echo "  $0 build <target|all>"
 	echo "  $0 dist <target|all>"
 	echo "  $0 publish"
+	echo "  $0 scan"
 	echo
 	echo "Available targets:"
 	echo "  ${ALL_TARGETS[*]}"
@@ -834,6 +796,15 @@ if [[ "$COMMAND" == "publish" ]]; then
 		exit 1
 	fi
 	publish_release
+	exit 0
+fi
+
+if [[ "$COMMAND" == "scan" ]]; then
+	if [[ -n "$TARGET" ]]; then
+		log_error "scan command does not accept a target argument"
+		exit 1
+	fi
+	scan_virustotal
 	exit 0
 fi
 
