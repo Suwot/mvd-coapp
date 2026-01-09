@@ -2,8 +2,8 @@ ManifestDPIAware true
 
 ######################################################################
 
-# System-level installation - admin privileges required
-# This installer runs elevated but writes HKCU registry keys for the original invoking user using UAC plugin
+# Support both per-user and per-machine installation.
+# Base execution starts as standard user; elevates only if per-machine is selected.
 RequestExecutionLevel user
 
 ######################################################################
@@ -21,9 +21,9 @@ RequestExecutionLevel user
 !define MAIN_APP_EXE "mvdcoapp.exe"
 !define ICON "icon.ico"
 !define LICENSE_TXT "LICENSE.txt"
-!define INSTALL_DIR "$PROGRAMFILES64\${APP_NAME}"
-!define INSTALL_TYPE "SetShellVarContext all"
-!define REG_ROOT "HKLM"
+; Default install dir is per-user for safety, will be adjusted in .onInit
+!define INSTALL_DIR_USER "$LOCALAPPDATA\${APP_NAME}"
+!define INSTALL_DIR_MACHINE "$PROGRAMFILES64\${APP_NAME}"
 !define REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${MAIN_APP_EXE}"
 !define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 
@@ -43,13 +43,15 @@ Name "${APP_NAME}"
 Caption "${APP_NAME} ${VERSION}"
 OutFile "${OUTFILE}"
 BrandingText "${APP_NAME}"
-InstallDirRegKey "${REG_ROOT}" "${REG_APP_PATH}" ""
-InstallDir "${INSTALL_DIR}"
+InstallDir "${INSTALL_DIR_USER}"
 
 ######################################################################
 
 Var PROGRAMDATA_DIR
-Var __UAC_L
+Var InstallMode # "user" or "machine"
+Var Dialog
+Var Radio_User
+Var Radio_Machine
 
 ######################################################################
 
@@ -59,14 +61,31 @@ Var __UAC_L
 ######################################################################
 
 !include "MUI2.nsh"
+!include "nsDialogs.nsh"
+!include "FileFunc.nsh"
+!include "WinMessages.nsh"
 !include "StrFunc.nsh"
 !include "UAC.nsh"
 ${Using:StrFunc} StrRep
+!insertmacro GetParent
 
 !define MUI_ABORTWARNING
 
+Var SkipStartupPages
+
+Function SkipIfElevated
+	${If} $SkipStartupPages == 1
+		Abort
+	${EndIf}
+FunctionEnd
+
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfElevated
 !insertmacro MUI_PAGE_WELCOME
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfElevated
 !insertmacro MUI_PAGE_LICENSE "${LICENSE_TXT}"
+
+Page custom PageInstallModeSelection PageInstallModeSelectionLeave
+
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -105,52 +124,168 @@ ShowInstDetails show
 	!insertmacro UAC_AsUser_Call Label _UAC_L_F_${__UAC_L} ${UAC_SYNCREGISTERS}
 !macroend
 
-######################################################################
-
 !macro Init thing
 uac_tryagain:
+# Hide the entire window BEFORE prompt.
+# This eliminates the "ghost window" while user is at the UAC prompt.
+HideWindow
+
 !insertmacro UAC_RunElevated
 ${Switch} $0
 ${Case} 0
-	${IfThen} $1 = 1 ${|} Quit ${|} ;we are the outer process, the inner process has done its work, we are done
-	${IfThen} $3 <> 0 ${|} ${Break} ${|} ;we are admin, let the show go on
-	${If} $1 = 3 ;RunAs completed successfully, but with a non-admin user
-	MessageBox mb_YesNo|mb_IconExclamation|mb_TopMost|mb_SetForeground "This ${thing} requires admin privileges, try again" /SD IDNO IDYES uac_tryagain IDNO 0
+	${If} $1 = 1
+		# Elevation worked, child process is running. 
+		# Close the original process immediately and quietly.
+		SetErrorLevel 0
+		Quit
 	${EndIf}
-	;fall-through and die
-${Case} 1223
-	MessageBox mb_IconStop|mb_TopMost|mb_SetForeground "This ${thing} requires admin privileges, aborting!"
+	
+	# Return from elevation: either we are already elevated ($1=2) or need retry ($1=3)
+	# Bring the window back before showing any boxes or continuing.
+	ShowWindow $HWNDPARENT ${SW_SHOW}
+	
+	${IfThen} $1 = 2 ${|} ${Break} ${|} ; already running elevated, proceed.
+    
+    # User logged in with non-admin account in RunAs
+	MessageBox mb_YesNo|mb_IconExclamation|mb_TopMost|mb_SetForeground "This ${thing} requires admin privileges, try again?" /SD IDNO IDYES uac_tryagain
 	Quit
+${Case} 1223
+	# User cancelled elevation - show window again and return to page.
+	ShowWindow $HWNDPARENT ${SW_SHOW}
+	Abort # This will stop the "Leave" function and stay on the current page.
 ${Case} 1062
+	ShowWindow $HWNDPARENT ${SW_SHOW}
 	MessageBox mb_IconStop|mb_TopMost|mb_SetForeground "Logon service not running, aborting!"
 	Quit
 ${Default}
+	ShowWindow $HWNDPARENT ${SW_SHOW}
 	MessageBox mb_IconStop|mb_TopMost|mb_SetForeground "Unable to elevate, error $0"
 	Quit
 ${EndSwitch}
-
-SetShellVarContext all
 !macroend
 
 ######################################################################
 
+######################################################################
+
+Function PageInstallModeSelection
+	# If we are an elevated child process, skip this page too, 
+	# but reset the flag so that Back button works correctly from later pages.
+	${If} $SkipStartupPages == 1
+		StrCpy $SkipStartupPages 0
+		Abort
+	${EndIf}
+
+	nsDialogs::Create 1018
+	Pop $Dialog
+
+	${If} $Dialog == error
+		Abort
+	${EndIf}
+
+	${NSD_CreateLabel} 0 0 100% 12u "Select the installation mode:"
+	
+	${NSD_CreateRadioButton} 0 20u 100% 10u "Install for current user (recommended)"
+	Pop $Radio_User
+	
+	${NSD_CreateRadioButton} 0 35u 100% 10u "Install for all users (requires admin)"
+	Pop $Radio_Machine
+
+	# Pre-select based on existing state
+	${If} $InstallMode == "machine"
+		${NSD_SetState} $Radio_Machine 1
+	${Else}
+		${NSD_SetState} $Radio_User 1
+	${EndIf}
+
+	nsDialogs::Show
+FunctionEnd
+
+Function PageInstallModeSelectionLeave
+	${NSD_GetState} $Radio_Machine $0
+	${If} $0 == 1
+		# User selected machine mode
+		StrCpy $InstallMode "machine"
+
+		# All-users install requires elevation on UAC systems.
+		!insertmacro Init "installer"
+		
+		# If Init returned (didn't Quit or Abort), we are elevated.
+		StrCpy $INSTDIR "${INSTALL_DIR_MACHINE}"
+		SetShellVarContext all
+	${Else}
+		# User selected user mode
+		StrCpy $InstallMode "user"
+		StrCpy $INSTDIR "${INSTALL_DIR_USER}"
+		SetShellVarContext current
+	${EndIf}
+FunctionEnd
+
+######################################################################
+
 Function .onInit
-	SetRegView 64
 	ReadEnvStr $PROGRAMDATA_DIR "PROGRAMDATA"
-	!insertmacro Init "installer"
+	
+	# Initial default state
+	StrCpy $InstallMode "user"
+	SetShellVarContext current
+	StrCpy $INSTDIR "${INSTALL_DIR_USER}"
+	StrCpy $SkipStartupPages 0
+
+	# Check if we are an 'inner' elevated process.
+	# If so, we pre-select machine mode and jump straight to Directory page.
+	UAC::_ 3
+	Pop $0
+	${If} $0 != 0
+		StrCpy $InstallMode "machine"
+		StrCpy $INSTDIR "${INSTALL_DIR_MACHINE}"
+		SetShellVarContext all
+		StrCpy $SkipStartupPages 1
+	${EndIf}
 FunctionEnd
 
 Function un.onInit
-	SetRegView 64
+	# Detect install mode and path from registry
 	ReadEnvStr $PROGRAMDATA_DIR "PROGRAMDATA"
-	!insertmacro Init "uninstaller"
+
+	# Scan for installation mode and $INSTDIR
+	# We check both views for maximum reliability
+	SetRegView 64
+	ReadRegStr $0 HKCU "${REG_APP_PATH}" "InstallMode"
+	ReadRegStr $1 HKCU "${REG_APP_PATH}" ""
+	${If} $0 == ""
+		ReadRegStr $0 HKLM "${REG_APP_PATH}" "InstallMode"
+		ReadRegStr $1 HKLM "${REG_APP_PATH}" ""
+	${EndIf}
+	
+	${If} $0 == ""
+		SetRegView 32
+		ReadRegStr $0 HKCU "${REG_APP_PATH}" "InstallMode"
+		ReadRegStr $1 HKCU "${REG_APP_PATH}" ""
+		${If} $0 == ""
+			ReadRegStr $0 HKLM "${REG_APP_PATH}" "InstallMode"
+			ReadRegStr $1 HKLM "${REG_APP_PATH}" ""
+		${EndIf}
+	${EndIf}
+
+	# $1 contains the path to mvdcoapp.exe, we need the folder
+	${If} $1 != ""
+		${GetParent} "$1" $INSTDIR
+	${EndIf}
+
+	${If} $0 == "machine"
+		StrCpy $InstallMode "machine"
+		SetShellVarContext all
+		!insertmacro Init "uninstaller"
+	${Else}
+		StrCpy $InstallMode "user"
+		SetShellVarContext current
+	${EndIf}
 FunctionEnd
 
 ######################################################################
 
 Section -MainProgram
-	${INSTALL_TYPE}
-
 	SetDetailsPrint textonly
 	DetailPrint "Installing MAX Video Downloader CoApp..."
 	SetDetailsPrint listonly
@@ -163,9 +298,6 @@ Section -MainProgram
 	# Kill process - simple approach, ignore if already dead
 	nsExec::ExecToStack 'taskkill /f /im mvdcoapp.exe /t'
 	Sleep 1000
-	
-	# Brief pause for handle cleanup
-	Sleep 500
 
 	SetDetailsPrint textonly
 	DetailPrint "Installing application files..."
@@ -289,8 +421,11 @@ Section -CreateDataDirectory
 	DetailPrint "Creating application data directory..."
 	SetDetailsPrint listonly
 
-	# Create ProgramData directory for logs (basic creation only)
-	CreateDirectory "$PROGRAMDATA_DIR\${APP_NAME}"
+	${If} $InstallMode == "machine"
+		# Create ProgramData directory for logs
+		CreateDirectory "$PROGRAMDATA_DIR\${APP_NAME}"
+	${EndIf}
+	# No-op for user mode; $INSTDIR is already $LOCALAPPDATA\${APP_NAME}
 
 SectionEnd
 
@@ -301,96 +436,176 @@ Section -RegisterBrowsers
 	DetailPrint "Registering with browsers..."
 	SetDetailsPrint listonly
 
-	# Chrome/Chromium family (system-wide, HKLM)
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+	# NativeMessagingHosts registry values must point to the manifest file on disk (full path).
+	StrCpy $1 "$INSTDIR\chromium-manifest.json"
+	StrCpy $2 "$INSTDIR\mozilla-manifest.json"
 
-	# Firefox (system-wide, HKLM)
-	WriteRegStr ${REG_ROOT} "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\mozilla-manifest.json"
+	${If} $InstallMode == "machine"
+		# Register in HKLM (system-wide)
+		SetRegView 64
+		WriteRegStr HKLM "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$2"
 
-	# Chrome/Chromium family (per-user, HKCU) - using UAC to write as original user
-	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
-	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\chromium-manifest.json"
+		SetRegView 32
+		WriteRegStr HKLM "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+		WriteRegStr HKLM "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$2"
+	${EndIf}
 
-	# Firefox (per-user, HKCU)
-	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$INSTDIR\mozilla-manifest.json"
+	# Register in HKCU (per-user)
+	# If we are admin, we MUST use !insertmacro UAC_AsUser_RegWrite to hit the real user's HKCU.
+	# We write to both 64-bit and 32-bit views for maximum compatibility.
+	
+	SetRegView 64
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$2"
 
+	SetRegView 32
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
+	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$2"
+
+	SetRegView 64 # Restore default view
 SectionEnd
 
 ######################################################################
 
 Section -SystemIntegration
-	${INSTALL_TYPE}
-
+	# Registry root (HKLM or HKCU) is set based on SetShellVarContext
+	SetRegView 64
 	SetOutPath "$INSTDIR"
 	WriteUninstaller "$INSTDIR\uninstall.exe"
 
 	# Application registration
-	WriteRegStr ${REG_ROOT} "${REG_APP_PATH}" "" "$INSTDIR\${MAIN_APP_EXE}"
-	WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayName" "${APP_NAME}"
-	WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\uninstall.exe"
-	WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${MAIN_APP_EXE}"
-	WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
-	WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
-	WriteRegDWORD ${REG_ROOT} "${UNINSTALL_PATH}" "NoModify" 1
-	WriteRegDWORD ${REG_ROOT} "${UNINSTALL_PATH}" "NoRepair" 1
+	WriteRegStr SHCTX "${REG_APP_PATH}" "" "$INSTDIR\${MAIN_APP_EXE}"
+	WriteRegStr SHCTX "${REG_APP_PATH}" "InstallMode" "$InstallMode"
+	
+	WriteRegStr SHCTX "${UNINSTALL_PATH}"  "DisplayName" "${APP_NAME}"
+	# UninstallString must be quoted because $INSTDIR contains spaces ("Program Files", etc.).
+	WriteRegStr SHCTX "${UNINSTALL_PATH}"  "UninstallString" '"$INSTDIR\uninstall.exe"'
+	WriteRegStr SHCTX "${UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${MAIN_APP_EXE}"
+	WriteRegStr SHCTX "${UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
+	WriteRegStr SHCTX "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
+	WriteRegDWORD SHCTX "${UNINSTALL_PATH}" "NoModify" 1
+	WriteRegDWORD SHCTX "${UNINSTALL_PATH}" "NoRepair" 1
+	
+	SetRegView 32
+	WriteRegStr SHCTX "${REG_APP_PATH}" "" "$INSTDIR\${MAIN_APP_EXE}"
+	WriteRegStr SHCTX "${REG_APP_PATH}" "InstallMode" "$InstallMode"
+	
+	WriteRegStr SHCTX "${UNINSTALL_PATH}"  "DisplayName" "${APP_NAME}"
+	# UninstallString must be quoted because $INSTDIR contains spaces ("Program Files", etc.).
+	WriteRegStr SHCTX "${UNINSTALL_PATH}"  "UninstallString" '"$INSTDIR\uninstall.exe"'
+	WriteRegStr SHCTX "${UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${MAIN_APP_EXE}"
+	WriteRegStr SHCTX "${UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
+	WriteRegStr SHCTX "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
+	WriteRegDWORD SHCTX "${UNINSTALL_PATH}" "NoModify" 1
+	WriteRegDWORD SHCTX "${UNINSTALL_PATH}" "NoRepair" 1
 
 SectionEnd
 
 ######################################################################
 
 Section Uninstall
-	${INSTALL_TYPE}
-
 	SetDetailsPrint textonly
 	DetailPrint "Removing MAX Video Downloader CoApp..."
 	SetDetailsPrint listonly
 
-	# Stop any running instances (mirror install process)
+	# Stop any running instances
 	nsExec::ExecToStack 'taskkill /f /im mvdcoapp.exe /t'
 	Sleep 1000
 
-	# Remove from HKLM (system-wide)
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
-	DeleteRegKey ${REG_ROOT} "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	${If} $InstallMode == "machine"
+		# Remove from HKLM (system-wide)
+		SetRegView 64
+		DeleteRegKey HKLM "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		
+		SetRegView 32
+		DeleteRegKey HKLM "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+		DeleteRegKey HKLM "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	${EndIf}
 	
-	# Remove from HKCU (per-user) - using UAC to delete as original user
+	# Remove from HKCU (per-user) - both views
+	SetRegView 64
 	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+
+	SetRegView 32
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Vivaldi\NativeMessagingHosts\pro.maxvideodownloader.coapp"
+	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Epic Privacy Browser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Yandex\YandexBrowser\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Opera Software\Opera Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Opera Software\Opera GX Stable\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 	!insertmacro UAC_AsUser_RegDeleteKey "HKCU" "SOFTWARE\Mozilla\NativeMessagingHosts\pro.maxvideodownloader.coapp"
 
 	# Remove application registration
-	DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
-	DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
+	SetRegView 64
+	DeleteRegKey SHCTX "${REG_APP_PATH}"
+	DeleteRegKey SHCTX "${UNINSTALL_PATH}"
+	SetRegView 32
+	DeleteRegKey SHCTX "${REG_APP_PATH}"
+	DeleteRegKey SHCTX "${UNINSTALL_PATH}"
 
-	# Remove files and directory (use /REBOOTOK for consistency)
+	# Remove files and directory
 	Delete /REBOOTOK "$INSTDIR\mvdcoapp.exe"
 	Delete /REBOOTOK "$INSTDIR\ffmpeg.exe"
 	Delete /REBOOTOK "$INSTDIR\ffprobe.exe"
@@ -401,7 +616,9 @@ Section Uninstall
 	Delete "$INSTDIR\uninstall.exe"
 	RmDir "$INSTDIR"
 	
-	# Remove ProgramData directory (only if empty)
-	RmDir "$PROGRAMDATA_DIR\${APP_NAME}"
+	# Remove ProgramData directory if it was created (only in machine mode typically)
+	${If} $InstallMode == "machine"
+		RmDir "$PROGRAMDATA_DIR\${APP_NAME}"
+	${EndIf}
 
 SectionEnd
