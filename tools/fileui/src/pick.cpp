@@ -173,7 +173,6 @@ static int reveal_file(const wchar_t* filepath) {
 }
 
 // Open folder using ShellExecuteW with "open" verb (handles long paths > 260 chars)
-// SHOpenFolderAndSelectItems with 0 items opens parent + selects folder (not what we want)
 // ShellExecuteW("open", folderpath) actually opens the folder directly and handles long paths
 static int open_folder(const wchar_t* folderpath) {
     if (!folderpath || !*folderpath) {
@@ -181,25 +180,7 @@ static int open_folder(const wchar_t* folderpath) {
         return 1;
     }
     
-    // Verify path is accessible before opening (fail fast)
-    PIDLIST_ABSOLUTE pidlFolder = nullptr;
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    if (FAILED(hr)) {
-        fwprintf(stderr, L"open-folder: com-init-failed\n");
-        return 1;
-    }
-    
-    // Parse to validate path exists (SHParseDisplayName handles long paths, \\?\ prefix, UNC)
-    hr = SHParseDisplayName(folderpath, nullptr, &pidlFolder, 0, nullptr);
-    CoUninitialize();
-    
-    if (FAILED(hr) || !pidlFolder) {
-        fwprintf(stderr, L"open-folder: path-not-found\n");
-        return 1;
-    }
-    ILFree(pidlFolder);
-    
-    // Now use ShellExecuteW to actually open the folder
+    // Use ShellExecuteW to actually open the folder
     // ShellExecuteW("open", folder) handles long paths correctly (no command-line parsing involved)
     // This is equivalent to double-clicking the folder in Explorer
     SHELLEXECUTEINFOW shExecInfo = {};
