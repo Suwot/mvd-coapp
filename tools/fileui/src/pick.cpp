@@ -204,7 +204,7 @@ static int open_folder(const wchar_t* folderpath) {
     // This is equivalent to double-clicking the folder in Explorer
     SHELLEXECUTEINFOW shExecInfo = {};
     shExecInfo.cbSize = sizeof(SHELLEXECUTEINFOW);
-    shExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+    shExecInfo.fMask = 0;
     shExecInfo.lpVerb = L"open";
     shExecInfo.lpFile = folderpath;
     shExecInfo.nShow = SW_SHOW;
@@ -212,10 +212,6 @@ static int open_folder(const wchar_t* folderpath) {
     if (!ShellExecuteExW(&shExecInfo)) {
         fwprintf(stderr, L"open-folder: execute-failed\n");
         return 1;
-    }
-    
-    if (shExecInfo.hProcess) {
-        CloseHandle(shExecInfo.hProcess);
     }
     
     return 0;
@@ -230,7 +226,7 @@ static int open_file(const wchar_t* filepath) {
     
     SHELLEXECUTEINFOW shExecInfo = {};
     shExecInfo.cbSize = sizeof(SHELLEXECUTEINFOW);
-    shExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+    shExecInfo.fMask = 0;
     shExecInfo.lpVerb = L"open";
     shExecInfo.lpFile = filepath;
     shExecInfo.nShow = SW_SHOW;
@@ -238,11 +234,6 @@ static int open_file(const wchar_t* filepath) {
     if (!ShellExecuteExW(&shExecInfo)) {
         fwprintf(stderr, L"open-file: execute-failed\n");
         return 1; // Failed to open
-    }
-    
-    // Close process handle if it was created
-    if (shExecInfo.hProcess) {
-        CloseHandle(shExecInfo.hProcess);
     }
     
     return 0;
