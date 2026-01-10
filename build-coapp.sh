@@ -133,18 +133,6 @@ get_pkg_target() {
 	esac
 }
 
-# Packager selection
-# - Legacy Node 12 targets MUST use the classic `pkg` (works reliably with node12 runtimes).
-# - Linux targets use classic `pkg` for lower glibc requirements.
-# - Everything else prefers `@yao-pkg/pkg`.
-get_packager_name_for_target() {
-	if is_legacy "$1" || is_linux "$1"; then
-		echo "pkg"
-	else
-		echo "@yao-pkg/pkg"
-	fi
-}
-
 bundle_sources_for_target() {
 	local target=$1
 	local pkg_target=$(get_pkg_target "$target")
@@ -508,13 +496,11 @@ EOF
 		fi
 	fi
 
-	# 5. Compile Main Binary (pkg / yao-pkg)
-	local packager_name
-	packager_name=$(get_packager_name_for_target "$target")
-	check_npx_tool "$packager_name"
-	local pkg_npx_cmd="npx --yes $packager_name"
+	# 5. Compile Main Binary (pkg)
+	local pkg_npx_cmd="npx --yes pkg"
+	check_npx_tool "pkg"
 
-	# Only win-arm64 requires --public to prevent immediate crashes.
+	# win-arm64 requires --public to prevent crashes.
 	local extra_flags=""
 	if [[ "$target" == "win-arm64" ]]; then
 		extra_flags="--public"
@@ -910,8 +896,8 @@ fi
 check_tool "node"
 check_tool "npx"
 
-if ! npx --yes @yao-pkg/pkg --version >/dev/null 2>&1 && ! npx --yes pkg --version >/dev/null 2>&1; then
-	log_warn "No packager found via npx (@yao-pkg/pkg or pkg). Install one (recommended): npm i -D @yao-pkg/pkg"
+if ! npx --yes pkg --version >/dev/null 2>&1; then
+	log_warn "No packager found via npx (pkg). Install it: npm i -D pkg"
 fi
 
 if [[ "$TARGET" == "all" ]]; then
