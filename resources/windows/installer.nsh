@@ -148,7 +148,7 @@ ${Case} 0
     
     # User logged in with non-admin account in RunAs
 	MessageBox mb_YesNo|mb_IconExclamation|mb_TopMost|mb_SetForeground "This ${thing} requires admin privileges, try again?" /SD IDNO IDYES uac_tryagain
-	Quit
+	Abort
 ${Case} 1223
 	# User cancelled elevation - show window again and return to page.
 	ShowWindow $HWNDPARENT ${SW_SHOW}
@@ -156,11 +156,11 @@ ${Case} 1223
 ${Case} 1062
 	ShowWindow $HWNDPARENT ${SW_SHOW}
 	MessageBox mb_IconStop|mb_TopMost|mb_SetForeground "Logon service not running, aborting!"
-	Quit
+	Abort
 ${Default}
 	ShowWindow $HWNDPARENT ${SW_SHOW}
 	MessageBox mb_IconStop|mb_TopMost|mb_SetForeground "Unable to elevate, error $0"
-	Quit
+	Abort
 ${EndSwitch}
 !macroend
 
