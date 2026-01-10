@@ -314,10 +314,12 @@ build_binary() {
 		patch=${BASH_REMATCH[3]}
 	fi
 
-	local extra_cxx_flags="-O2 -static-libgcc -static-libstdc++ -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--as-needed"
+	local extra_cxx_flags="-O2 -ffunction-sections -fdata-sections"
+	if ! is_mac "$target"; then
+		extra_cxx_flags+=" -Wl,--gc-sections -Wl,--as-needed"
+	fi
 	if is_windows "$target"; then
-		# PE mitigations (ASLR, DEP, etc.) to look less like a "packed" binary
-		extra_cxx_flags="$extra_cxx_flags -Wl,--dynamicbase -Wl,--nxcompat -Wl,--high-entropy-va"
+		extra_cxx_flags+=" -static-libgcc -static-libstdc++ -Wl,--dynamicbase -Wl,--nxcompat -Wl,--high-entropy-va"
 	fi
 
 	# 1. Prepare Build Directory
