@@ -102,8 +102,10 @@ check_compiler_for_target() {
 		# PATH is prepended inside build_binary() for win targets.
 		if [[ "$target" == "win-arm64" ]]; then
 			check_tool "aarch64-w64-mingw32-g++"
+			check_tool "aarch64-w64-mingw32-windres"
 		else
 			check_tool "x86_64-w64-mingw32-g++"
+			check_tool "x86_64-w64-mingw32-windres"
 		fi
 	elif is_mac "$target"; then
 		check_tool "xcrun"
@@ -316,6 +318,20 @@ build_binary() {
 	local bundled_dir="$LEGACY_TRANSPILED_DIR"
 	local pkg_entry="$bundled_dir/index.js"
 
+	# Get version components for PE resources
+	local major=0 minor=0 patch=0
+	if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+		major=${BASH_REMATCH[1]}
+		minor=${BASH_REMATCH[2]}
+		patch=${BASH_REMATCH[3]}
+	fi
+
+	local extra_cxx_flags="-O2 -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--as-needed"
+	if is_windows "$target"; then
+		# PE mitigations (ASLR, DEP, etc.) to look less like a "packed" binary
+		extra_cxx_flags="$extra_cxx_flags -Wl,--dynamicbase -Wl,--nxcompat -Wl,--high-entropy-va"
+	fi
+
 	# 1. Prepare Build Directory
 	rm -rf "$build_dir"
 	mkdir -p "$build_dir"
@@ -353,10 +369,51 @@ build_binary() {
 
 		if is_windows "$target"; then
 			local compiler="x86_64-w64-mingw32-g++"
-			[[ "$target" == "win-arm64" ]] && compiler="aarch64-w64-mingw32-g++"
-			# Note: For win7-x64 (legacy), we rely on default linking (usually msvcrt or ucrt provided by toolchain).
-			# User requested llvm-mingw.
-			"$compiler" "$diskspace_src" -O2 -s -static -Wl,--major-subsystem-version,6,--minor-subsystem-version,0 -o "$temp_diskspace"
+			local res_compiler="x86_64-w64-mingw32-windres"
+			if [[ "$target" == "win-arm64" ]]; then
+				compiler="aarch64-w64-mingw32-g++"
+				res_compiler="aarch64-w64-mingw32-windres"
+			fi
+
+			# Generate and compile resources
+			local res_rc="$bundled_dir/diskspace.rc"
+			local res_obj="$bundled_dir/diskspace.res.o"
+			
+			cat > "$res_rc" <<EOF
+#include <windows.h>
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     $major,$minor,$patch,0
+PRODUCTVERSION  $major,$minor,$patch,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0x0L
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "MAX Video Downloader"
+            VALUE "FileDescription",  "MAX Video Downloader Disk Space Helper"
+            VALUE "FileVersion",      "$VERSION"
+            VALUE "InternalName",     "mvd-diskspace"
+            VALUE "LegalCopyright",   "Copyright (C) 2026 MAX Video Downloader"
+            VALUE "OriginalFilename", "mvd-diskspace.exe"
+            VALUE "ProductName",      "MAX Video Downloader"
+            VALUE "ProductVersion",   "$VERSION"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+EOF
+			"$res_compiler" "$res_rc" -o "$res_obj"
+
+			# Compile with resource and PE mitigations
+			"$compiler" "$diskspace_src" "$res_obj" $extra_cxx_flags -static -Wl,--major-subsystem-version,6,--minor-subsystem-version,0 -o "$temp_diskspace"
 		elif is_mac "$target"; then
 			local mac_cxx
 			mac_cxx=$(xcrun --find clang++)
@@ -371,10 +428,10 @@ build_binary() {
 				mac_min_version="10.10"
 			fi
 			export MACOSX_DEPLOYMENT_TARGET="$mac_min_version"
-			"$mac_cxx" "$diskspace_src" -O2 -arch "$mac_arch" -mmacosx-version-min="$mac_min_version" -isysroot "$mac_sdk" -stdlib=libc++ -o "$temp_diskspace"
+			"$mac_cxx" "$diskspace_src" $extra_cxx_flags -arch "$mac_arch" -mmacosx-version-min="$mac_min_version" -isysroot "$mac_sdk" -stdlib=libc++ -o "$temp_diskspace"
 			unset MACOSX_DEPLOYMENT_TARGET
 		elif is_linux "$target"; then
-			g++ -std=c++11 "$diskspace_src" -O2 -s -o "$temp_diskspace"
+			g++ -std=c++11 "$diskspace_src" $extra_cxx_flags -o "$temp_diskspace"
 		fi
 
 		mv "$temp_diskspace" "$bin_diskspace"
@@ -398,11 +455,53 @@ build_binary() {
 				exit 1
 			fi
 			local compiler="x86_64-w64-mingw32-g++"
-			[[ "$target" == "win-arm64" ]] && compiler="aarch64-w64-mingw32-g++"
+			local res_compiler="x86_64-w64-mingw32-windres"
+			if [[ "$target" == "win-arm64" ]]; then
+				compiler="aarch64-w64-mingw32-g++"
+				res_compiler="aarch64-w64-mingw32-windres"
+			fi
+
+			# Generate and compile resources
+			local res_rc="$bundled_dir/fileui.rc"
+			local res_obj="$bundled_dir/fileui.res.o"
+
+			cat > "$res_rc" <<EOF
+#include <windows.h>
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     $major,$minor,$patch,0
+PRODUCTVERSION  $major,$minor,$patch,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0x0L
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "MAX Video Downloader"
+            VALUE "FileDescription",  "MAX Video Downloader File UI Helper"
+            VALUE "FileVersion",      "$VERSION"
+            VALUE "InternalName",     "mvd-fileui"
+            VALUE "LegalCopyright",   "Copyright (C) 2026 MAX Video Downloader"
+            VALUE "OriginalFilename", "mvd-fileui.exe"
+            VALUE "ProductName",      "MAX Video Downloader"
+            VALUE "ProductVersion",   "$VERSION"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+EOF
+			"$res_compiler" "$res_rc" -o "$res_obj"
 
 			mkdir -p "$BIN_DIR/$ffmpeg_plat"
 			local temp_fileui="$bin_fileui.tmp"
-			"$compiler" "$fileui_src" -O2 -s -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -Wl,--major-subsystem-version,6,--minor-subsystem-version,0 -o "$temp_fileui"
+			# Compile with resource and PE mitigations
+			"$compiler" "$fileui_src" "$res_obj" $extra_cxx_flags -fno-exceptions -fno-rtti -lole32 -luuid -lshell32 -lshlwapi -Wl,--major-subsystem-version,6,--minor-subsystem-version,0 -o "$temp_fileui"
 			mv "$temp_fileui" "$bin_fileui"
 			cp "$bin_fileui" "$build_fileui"
 			validate_binary_file "$target" "$build_fileui" || true
