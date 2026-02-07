@@ -31,6 +31,7 @@ const BROWSERS = {
     { name: 'Vivaldi Snapshot', type: 'chrome', subPath: 'Library/Application Support/Vivaldi-Snapshot/NativeMessagingHosts', configDir: 'Library/Application Support/Vivaldi-Snapshot' },
     { name: 'Epic Privacy Browser', type: 'chrome', subPath: 'Library/Application Support/Epic Privacy Browser/NativeMessagingHosts', configDir: 'Library/Application Support/Epic Privacy Browser' },
     { name: 'Yandex Browser', type: 'chrome', subPath: 'Library/Application Support/Yandex/YandexBrowser/NativeMessagingHosts', configDir: 'Library/Application Support/Yandex/YandexBrowser' },
+    { name: 'CocCoc', type: 'chrome', subPath: 'Library/Application Support/CocCoc/Browser/NativeMessagingHosts', configDir: 'Library/Application Support/CocCoc/Browser' },
 
     // Firefox-family
     { name: 'Firefox', type: 'firefox', subPath: 'Library/Application Support/Mozilla/NativeMessagingHosts', configDir: 'Library/Application Support/Mozilla' },
