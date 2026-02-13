@@ -124,7 +124,7 @@ fi
 
 # Try to get version from GitHub API (optional - for display only)
 print_status "Fetching latest version..."
-version=$(curl -s --max-time 10 "https://api.github.com/repos/Suwot/mvd-coapp/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//' || echo "")
+version=$(curl -fsSL --max-time 10 "https://api.github.com/repos/Suwot/mvd-coapp/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//' || echo "")
 
 if [ -z "$version" ] || [ "$version" = "null" ]; then
   print_warning "Could not fetch version info (network issue), continuing with installation..."
@@ -159,7 +159,7 @@ download_with_retry() {
       sleep $wait_time
     fi
     
-    if curl -fL --connect-timeout 30 --max-time 1800 "$url" -o "$output"; then
+    if curl -fL --connect-timeout 30 --max-time 1800 "$url" > "$output"; then
       return 0
     fi
     
@@ -172,9 +172,7 @@ download_with_retry() {
 # Download checksums first for verification
 print_status "Downloading checksums..."
 if ! download_with_retry "$checksum_url" "$checksums"; then
-  print_error "Failed to download checksums after 3 attempts"
-  echo "Cannot verify download integrity without checksums"
-  exit 1
+  print_warning "Failed to download checksums, skipping verification..."
 fi
 
 # Download with error checking
@@ -192,30 +190,30 @@ if ! download_with_retry "$url" "$archive"; then
   exit 1
 fi
 
-# Verify checksum
-print_status "Verifying download integrity..."
-# Use more specific grep to avoid matching other files (like .sig or .tar.gz.something)
-# Format is: <checksum><spaces><filename>
-expected_checksum=$(grep "[[:space:]]mvdcoapp-${host}.tar.gz$" "$checksums" | head -n 1 | awk '{print $1}' || echo "")
-if [ -z "$expected_checksum" ]; then
-  # Fallback: try without anchor if no match
-  expected_checksum=$(grep "mvdcoapp-${host}.tar.gz" "$checksums" | head -n 1 | awk '{print $1}' || echo "")
-fi
+# Verify checksum if we have the checksums file
+if [ -f "$checksums" ]; then
+  print_status "Verifying download integrity..."
+  # Use more specific grep to avoid matching other files (like .sig or .tar.gz.something)
+  # Format is: <checksum><spaces><filename>
+  expected_checksum=$(grep "[[:space:]]mvdcoapp-${host}.tar.gz$" "$checksums" | head -n 1 | awk '{print $1}' || echo "")
+  if [ -z "$expected_checksum" ]; then
+    # Fallback: try without anchor if no match
+    expected_checksum=$(grep "mvdcoapp-${host}.tar.gz" "$checksums" | head -n 1 | awk '{print $1}' || echo "")
+  fi
 
-if [ -z "$expected_checksum" ]; then
-  print_error "Checksum not found for ${host} in CHECKSUMS.sha256"
-  echo "Your platform may not be supported yet"
-  exit 1
-fi
-
-actual_checksum=$(sha256sum "$archive" | awk '{print $1}')
-if [ "$actual_checksum" != "$expected_checksum" ]; then
-  print_warning "Checksum verification failed"
-  echo "Expected sha256: $expected_checksum"
-  echo "Actual sha256:  $actual_checksum"
-  echo "Continuing with installation anyway..."
-else
-  print_success "Checksum verified"
+  if [ -z "$expected_checksum" ]; then
+    print_warning "Checksum not found for ${host} in CHECKSUMS.sha256"
+  else
+    actual_checksum=$(sha256sum "$archive" | awk '{print $1}')
+    if [ "$actual_checksum" != "$expected_checksum" ]; then
+      print_warning "Checksum verification failed"
+      echo "Expected sha256: $expected_checksum"
+      echo "Actual sha256:  $actual_checksum"
+      echo "Continuing with installation anyway..."
+    else
+      print_success "Checksum verified"
+    fi
+  fi
 fi
 
 print_status "Extracting archive..."
@@ -257,9 +255,10 @@ mv "$tmpdir/mvdcoapp" "$staging_dir"
 
 # Test binary before finalizing installation
 print_status "Verifying binary works..."
-if ! "$staging_dir/mvdcoapp" -version >/dev/null 2>&1; then
+chmod +x "$staging_dir/mvdcoapp"
+if ! "$staging_dir/mvdcoapp" -v >/dev/null 2>&1; then
   print_error "Binary verification failed"
-  echo "The downloaded binary may be corrupted or incompatible"
+  echo "The downloaded binary may be corrupted or incompatible with your system."
   echo "Platform: ${host}"
   rm -rf "$staging_dir"
   exit 1
@@ -292,7 +291,7 @@ rm -rf "${install_dir}.backup" 2>/dev/null || true
 # Temp directory will be cleaned up by trap on exit
 
 print_status "Registering CoApp with browsers..."
-"$install_dir/mvdcoapp" -install
+"$install_dir/mvdcoapp" -i
 
 print_success "CoApp is working correctly"
 
