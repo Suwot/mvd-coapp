@@ -32,6 +32,7 @@ const BROWSERS = {
     { name: 'Epic Privacy Browser', type: 'chrome', subPath: 'Library/Application Support/Epic Privacy Browser/NativeMessagingHosts', configDir: 'Library/Application Support/Epic Privacy Browser' },
     { name: 'Yandex Browser', type: 'chrome', subPath: 'Library/Application Support/Yandex/YandexBrowser/NativeMessagingHosts', configDir: 'Library/Application Support/Yandex/YandexBrowser' },
     { name: 'CocCoc', type: 'chrome', subPath: 'Library/Application Support/CocCoc/Browser/NativeMessagingHosts', configDir: 'Library/Application Support/CocCoc/Browser' },
+    { name: 'Whale', type: 'chrome', subPath: 'Library/Application Support/Naver/Whale/NativeMessagingHosts', configDir: 'Library/Application Support/Naver/Whale' },
 
     // Firefox-family
     { name: 'Firefox', type: 'firefox', subPath: 'Library/Application Support/Mozilla/NativeMessagingHosts', configDir: 'Library/Application Support/Mozilla' },
@@ -58,6 +59,7 @@ const BROWSERS = {
       { name: 'Opera', type: 'chrome', path: '.config/opera/NativeMessagingHosts', configDir: '.config/opera' },
       { name: 'Opera (Developer)', type: 'chrome', path: '.config/opera-developer/NativeMessagingHosts', configDir: '.config/opera-developer' },
       { name: 'Yandex Browser', type: 'chrome', path: '.config/yandex-browser/NativeMessagingHosts', configDir: '.config/yandex-browser' },
+      { name: 'Whale', type: 'chrome', path: '.config/naver-whale/NativeMessagingHosts', configDir: '.config/naver-whale' },
 
       // Firefox family
       { name: 'Firefox', type: 'firefox', path: '.mozilla/native-messaging-hosts', configDir: '.mozilla' },
@@ -88,6 +90,7 @@ const BROWSERS = {
       { name: 'Opera', type: 'chrome', path: '/etc/opt/opera/native-messaging-hosts' },
       { name: 'Vivaldi', type: 'chrome', path: '/etc/opt/vivaldi/native-messaging-hosts' },
       { name: 'Yandex Browser', type: 'chrome', path: '/etc/opt/yandex-browser/native-messaging-hosts' },
+      { name: 'Whale', type: 'chrome', path: '/etc/opt/naver-whale/native-messaging-hosts' },
 
       // Firefox-family (both lib and lib64 for distro compatibility)
       { name: 'Firefox', type: 'firefox', path: '/usr/lib/mozilla/native-messaging-hosts' },

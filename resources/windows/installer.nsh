@@ -443,6 +443,7 @@ Section -RegisterBrowsers
 	${If} $InstallMode == "machine"
 		# Register in HKLM (system-wide)
 		SetRegView 64
+		# Whale and 360 browsers on Windows use Chrome's NativeMessagingHosts path
 		WriteRegStr HKLM "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
 		WriteRegStr HKLM "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
 		WriteRegStr HKLM "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
@@ -472,6 +473,7 @@ Section -RegisterBrowsers
 	# We write to both 64-bit and 32-bit views for maximum compatibility.
 	
 	SetRegView 64
+	# Whale and 360 browsers on Windows use Chrome's NativeMessagingHosts path
 	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Google\Chrome\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
 	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Chromium\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
 	!insertmacro UAC_AsUser_RegWrite "HKCU" "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\pro.maxvideodownloader.coapp" "" "$1"
