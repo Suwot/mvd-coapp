@@ -7,6 +7,15 @@ import { getLinuxModalCommand } from './linux-dialog';
 
 const MANIFEST_NAME = 'pro.maxvideodownloader.coapp.json';
 
+const SNAP_BROWSERS = {
+  'chromium': { name: 'Chromium', type: 'chrome', manifestPaths: ['common/chromium/NativeMessagingHosts', 'current/.config/chromium/NativeMessagingHosts'] },
+  'brave': { name: 'Brave Browser', type: 'chrome', manifestPaths: ['common/BraveSoftware/Brave-Browser/NativeMessagingHosts', 'current/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts'] },
+  'vivaldi': { name: 'Vivaldi', type: 'chrome', manifestPaths: ['common/vivaldi/NativeMessagingHosts', 'current/.config/vivaldi/NativeMessagingHosts'] },
+  'opera': { name: 'Opera', type: 'chrome', manifestPaths: ['common/opera/NativeMessagingHosts', 'current/.config/opera/NativeMessagingHosts'] },
+  'microsoft-edge': { name: 'Microsoft Edge', type: 'chrome', manifestPaths: ['common/microsoft-edge/NativeMessagingHosts', 'current/.config/microsoft-edge/NativeMessagingHosts'] },
+  'firefox': { name: 'Firefox', type: 'firefox', manifestPaths: ['common/.mozilla/native-messaging-hosts', 'current/.mozilla/native-messaging-hosts'] }
+};
+
 const BROWSERS = {
   // macOS — same structure for both user and system modes, paths without tilde
   darwin: [
@@ -70,13 +79,7 @@ const BROWSERS = {
       { name: 'Google Chrome (Flatpak)', type: 'chrome', path: '.var/app/com.google.Chrome/config/google-chrome/NativeMessagingHosts', configDir: '.var/app/com.google.Chrome' },
       { name: 'Chromium (Flatpak)', type: 'chrome', path: '.var/app/org.chromium.Chromium/config/chromium/NativeMessagingHosts', configDir: '.var/app/org.chromium.Chromium' },
       { name: 'Brave Browser (Flatpak)', type: 'chrome', path: '.var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser/NativeMessagingHosts', configDir: '.var/app/com.brave.Browser' },
-      { name: 'Microsoft Edge (Flatpak)', type: 'chrome', path: '.var/app/com.microsoft.Edge/config/microsoft-edge/NativeMessagingHosts', configDir: '.var/app/com.microsoft.Edge' },
-
-      // Snap packages (sandboxed) - both current/ and common/ for all revisions
-      { name: 'Chromium (Snap common)', type: 'chrome', path: 'snap/chromium/common/chromium/NativeMessagingHosts', configDir: 'snap/chromium' },
-      { name: 'Chromium (Snap current)', type: 'chrome', path: 'snap/chromium/current/chromium/NativeMessagingHosts', configDir: 'snap/chromium' },
-      { name: 'Vivaldi (Snap common)', type: 'chrome', path: 'snap/vivaldi/common/.config/vivaldi/NativeMessagingHosts', configDir: 'snap/vivaldi' },
-      { name: 'Vivaldi (Snap current)', type: 'chrome', path: 'snap/vivaldi/current/.config/vivaldi/NativeMessagingHosts', configDir: 'snap/vivaldi' }
+      { name: 'Microsoft Edge (Flatpak)', type: 'chrome', path: '.var/app/com.microsoft.Edge/config/microsoft-edge/NativeMessagingHosts', configDir: '.var/app/com.microsoft.Edge' }
     ],
 
     // SYSTEM: always write; no checks needed
@@ -146,18 +149,148 @@ async function filterInstalledBrowsers(browsers, isSystemMode) {
   return results.filter(b => b !== null);
 }
 
-function createManifest(browserType) {
-  const execPath = realpathSync(process.execPath);
+async function copyFolderRecursive(src, dest) {
+  await fs.mkdir(dest, { recursive: true });
+  const entries = await fs.readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyFolderRecursive(srcPath, destPath);
+    } else {
+      await fs.copyFile(srcPath, destPath);
+      // Ensure executables remain executable
+      if (entry.name === 'mvdcoapp' || entry.name.startsWith('ffmpeg') || entry.name.startsWith('ffprobe') || entry.name.startsWith('mvd-')) {
+        await fs.chmod(destPath, 0o755);
+      }
+    }
+  }
+}
+
+function createManifest(browserType, customExecPath) {
+  const execPath = customExecPath || realpathSync(process.execPath);
   const base = { name: 'pro.maxvideodownloader.coapp', description: 'MAX Video Downloader CoApp', path: execPath, type: 'stdio' };
   return browserType === 'firefox' 
     ? { ...base, allowed_extensions: ['max-video-downloader@rostislav.dev'] }
     : { ...base, allowed_origins: ['chrome-extension://bkblnddclhmmgjlmbofhakhhbklkcofd/', 'chrome-extension://kjinbaahkmjgkkedfdgpkkelehofieke/', 'chrome-extension://hkakpofpmdphjlkojabkfjapnhjfebdl/'] };
 }
 
+async function handleSnapOnly(snapId, execPath, home) {
+  const installed = [];
+  const config = SNAP_BROWSERS[snapId];
+  if (!config) {
+    logDebug(`[Installer] Run from unknown snap: ${snapId}`);
+    return installed;
+  }
+
+  // Use the refined coverage rule: check each potential manifest parent directory and use the first one that exists.
+  let bestManifestDir = null;
+  for (const subPath of config.manifestPaths) {
+    const fullPath = path.join(home, 'snap', snapId, subPath);
+    const parentDir = path.dirname(fullPath);
+    try {
+      await fs.access(parentDir);
+      bestManifestDir = fullPath;
+      break;
+    } catch { /* ignore */ }
+  }
+
+  // Fallback to first one if none exist yet (mkdir recursive will handle it)
+  const manifestDir = bestManifestDir || path.join(home, 'snap', snapId, config.manifestPaths[0]);
+
+  try {
+    await fs.mkdir(manifestDir, { recursive: true, mode: 0o755 });
+    await writeFileAtomic(path.join(manifestDir, MANIFEST_NAME), JSON.stringify(createManifest(config.type, execPath), null, 2));
+    installed.push({ name: config.name });
+    logDebug(`[Installer] Snap-only success for ${config.name} at ${manifestDir}`);
+  } catch (err) {
+    logDebug(`[Installer] Snap-only failed for ${config.name}: ${err.message}`);
+  }
+  return installed;
+}
+
+async function handleNonSnapAndSnap(execPath, home) {
+  const installed = [];
+  const binDir = path.dirname(execPath);
+
+  // 1. Regular/Flatpak browsers (classic .config or .mozilla)
+  const regularBrowsers = await filterInstalledBrowsers(getBrowsers('user', 'linux'), false);
+  for (const b of regularBrowsers) {
+    try {
+      await fs.mkdir(b.path, { recursive: true, mode: 0o755 });
+      await writeFileAtomic(path.join(b.path, MANIFEST_NAME), JSON.stringify(createManifest(b.type, execPath), null, 2));
+      installed.push(b);
+      logDebug(`[Installer] Regular success for ${b.name} at ${b.path}`);
+    } catch (err) {
+      logDebug(`[Installer] Regular failed for ${b.name}: ${err.message}`);
+    }
+  }
+
+  // 2. Snap browsers (multi-layout coverage)
+  for (const [id, config] of Object.entries(SNAP_BROWSERS)) {
+    const snapHome = path.join(home, 'snap', id);
+    try {
+      await fs.access(snapHome);
+      const targetDir = path.join(snapHome, 'common/mvdcoapp');
+      const targetExec = path.join(targetDir, 'mvdcoapp');
+
+      // Copy bundle (clear first to ensure clean state)
+      try { await fs.rm(targetDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      await copyFolderRecursive(binDir, targetDir);
+
+      // Find best manifest location based on existing profile roots
+      let bestManifestDir = null;
+      for (const subPath of config.manifestPaths) {
+        const fullPath = path.join(snapHome, subPath);
+        const parentDir = path.dirname(fullPath);
+        try {
+          await fs.access(parentDir);
+          bestManifestDir = fullPath;
+          break;
+        } catch { /* ignore */ }
+      }
+      
+      const manifestDir = bestManifestDir || path.join(snapHome, config.manifestPaths[0]);
+      
+      await fs.mkdir(manifestDir, { recursive: true, mode: 0o755 });
+      await writeFileAtomic(path.join(manifestDir, MANIFEST_NAME), JSON.stringify(createManifest(config.type, targetExec), null, 2));
+      
+      installed.push({ name: `${config.name} (Snap)` });
+      logDebug(`[Installer] Snap success for ${config.name} at ${manifestDir}`);
+    } catch {
+      // Snap not installed or inaccessible
+    }
+  }
+  return installed;
+}
+
 export async function install() {
   const scope = process.getuid?.() === 0 ? 'system' : 'user';
   const platform = os.platform();
+  const home = os.homedir();
   logDebug(`[Installer] Starting install for scope: ${scope}, platform: ${platform}`);
+
+  if (platform === 'linux' && scope === 'user') {
+    const execPath = realpathSync(process.execPath);
+    const snapRoot = path.join(home, 'snap') + path.sep;
+    
+    let installed;
+    if (execPath.startsWith(snapRoot)) {
+        const snapId = execPath.slice(snapRoot.length).split(path.sep)[0];
+        installed = await handleSnapOnly(snapId, execPath, home);
+    } else {
+        installed = await handleNonSnapAndSnap(execPath, home);
+    }
+
+    if (installed.length > 0) {
+        logDebug(`[Installer] Total installed: ${installed.length}`);
+        await showLinuxDialog(installed, false, scope);
+    } else {
+        logDebug('[Installer] No target browsers found for installation.');
+        console.log('No browsers found.'); 
+    }
+    return;
+  }
 
   const browsers = await filterInstalledBrowsers(getBrowsers(scope, platform), scope === 'system');
   if (browsers.length === 0) {
@@ -189,7 +322,51 @@ export async function install() {
 export async function uninstall(fromDialog = false) {
   const scope = process.getuid?.() === 0 ? 'system' : 'user';
   const platform = os.platform();
+  const home = os.homedir();
   logDebug(`[Installer] Starting uninstall (scope: ${scope}, fromDialog: ${fromDialog})`);
+
+  if (platform === 'linux' && scope === 'user') {
+    const removed = [];
+
+    // 1. Regular/Flatpak
+    const regularBrowsers = await filterInstalledBrowsers(getBrowsers('user', 'linux'), false);
+    for (const b of regularBrowsers) {
+      try {
+        const p = path.join(b.path, MANIFEST_NAME);
+        await fs.access(p);
+        await fs.unlink(p);
+        removed.push(b);
+        logDebug(`[Installer] Removed from regular: ${b.name}`);
+      } catch { /* ignore */ }
+    }
+
+    // 2. Snaps (check all potential manifest locations)
+    for (const [id, config] of Object.entries(SNAP_BROWSERS)) {
+      const snapHome = path.join(home, 'snap', id);
+      try {
+        let hasRemovedManifest = false;
+        for (const subPath of config.manifestPaths) {
+          try {
+            const manifestPath = path.join(snapHome, subPath, MANIFEST_NAME);
+            await fs.access(manifestPath);
+            await fs.unlink(manifestPath);
+            hasRemovedManifest = true;
+          } catch { /* ignore if not in this path */ }
+        }
+        
+        if (hasRemovedManifest) {
+          removed.push({ name: `${config.name} (Snap)` });
+          logDebug(`[Installer] Removed from snap: ${config.name}`);
+        }
+      } catch { /* snap folder inaccessible */ }
+    }
+
+    if (removed.length > 0) {
+      logDebug(`[Installer] Total removed: ${removed.length}`);
+      await showLinuxDialog(removed, true, scope, fromDialog);
+    }
+    return;
+  }
 
   const browsers = await filterInstalledBrowsers(getBrowsers(scope, platform), scope === 'system');
   const removed = [];
