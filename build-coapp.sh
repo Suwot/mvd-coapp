@@ -681,7 +681,6 @@ EOF
 		cp "$build_dir"/* "$stage_dir/"
 		[[ -f "LICENSE.txt" ]] && cp "LICENSE.txt" "$stage_dir/"
 		[[ -f "$RESOURCES_DIR/linux/README.md" ]] && cp "$RESOURCES_DIR/linux/README.md" "$stage_dir/"
-		[[ -f "$RESOURCES_DIR/linux/install.sh" && -x "$RESOURCES_DIR/linux/install.sh" ]] && cp "$RESOURCES_DIR/linux/install.sh" "$stage_dir/"
 
 		log_info "  -> Creating tarball..."
 		tar -czf "$DIST_DIR/$tar_name" -C "$BUILD_ROOT" mvdcoapp
@@ -714,23 +713,18 @@ generate_checksums() {
 	local checksum_file="$DIST_DIR/CHECKSUMS.sha256"
 	rm -f "$checksum_file"
 
-	local files=()
-	while IFS=$'\0' read -r -d '' file; do
-		files+=("$file")
-	done < <(find "$DIST_DIR" -type f -not -name ".DS_Store" -not -name "CHECKSUMS.sha256" -print0)
-
-	if [[ ${#files[@]} -eq 0 ]]; then
-		log_warn "No artifacts found to checksum."
-		return 0
-	fi
-
-	{
-		for file in "${files[@]}"; do
-			"${checksum_tool[@]}" "$file"
+	log_info "  -> Recording checksums..."
+	(
+		cd "$DIST_DIR"
+		# Sort results to have consistent order and use relative paths
+		find . -type f -not -name ".DS_Store" -not -name "CHECKSUMS.sha256" | sort | while read -r file; do
+			# Remove leading ./ for clean output
+			local clean_file="${file#./}"
+			"${checksum_tool[@]}" "$clean_file"
 		done
-	} >"$checksum_file"
+	) >"$checksum_file"
 
-	log_info "Checksums recorded to $checksum_file"
+	log_info "✓ Checksums recorded to dist/CHECKSUMS.sha256"
 }
 
 scan_virustotal() {
