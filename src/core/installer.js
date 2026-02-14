@@ -42,6 +42,7 @@ const BROWSERS = {
     { name: 'Yandex Browser', type: 'chrome', subPath: 'Library/Application Support/Yandex/YandexBrowser/NativeMessagingHosts', configDir: 'Library/Application Support/Yandex/YandexBrowser' },
     { name: 'CocCoc', type: 'chrome', subPath: 'Library/Application Support/CocCoc/Browser/NativeMessagingHosts', configDir: 'Library/Application Support/CocCoc/Browser' },
     { name: 'Whale', type: 'chrome', subPath: 'Library/Application Support/Naver/Whale/NativeMessagingHosts', configDir: 'Library/Application Support/Naver/Whale' },
+    { name: 'Aloha', type: 'chrome', subPath: 'Library/Application Support/Aloha/NativeMessagingHosts', configDir: 'Library/Application Support/Aloha' },
 
     // Firefox-family
     { name: 'Firefox', type: 'firefox', subPath: 'Library/Application Support/Mozilla/NativeMessagingHosts', configDir: 'Library/Application Support/Mozilla' },
