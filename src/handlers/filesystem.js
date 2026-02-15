@@ -18,7 +18,7 @@ const FS_HANDLERS = {
 
     'readFile': async (params) => {
         const target = getPath(params);
-        if (!fs.existsSync(target)) throw new CoAppError('File not found', 'fileNotFound');
+        if (!fs.existsSync(target)) throw new CoAppError('File not found', 'ENOENT');
         const data = await fsp.readFile(target, params.options?.encoding || 'utf8');
         return { success: true, data };
     },
@@ -100,8 +100,8 @@ async function chooseDirectory(params) {
         const selectedPath = output.trim().replace(/^\uFEFF/, '');
         
         if (!selectedPath) {
-            logDebug('[FS] No path selected by user');
-            throw new CoAppError('No path selected', 'EIO');
+            logDebug(`[FS] No path selected by user. Raw output: "${output}"`);
+            throw new CoAppError('No path selected', 'noDirectorySelected');
         }
 
         logDebug(`[FS] User selected directory: ${selectedPath}`);
@@ -141,8 +141,8 @@ async function chooseSaveLocation(params) {
         const selectedPath = output.trim().replace(/^\uFEFF/, '');
 
         if (!selectedPath) {
-            logDebug('[FS] No save path selected by user');
-            throw new CoAppError('No path selected', 'ENOENT');
+            logDebug(`[FS] No save path selected by user. Raw output: "${output}"`);
+            throw new CoAppError('No path selected', 'noSaveLocationSelected');
         }
 
         logDebug(`[FS] User selected save path: ${selectedPath}`);
