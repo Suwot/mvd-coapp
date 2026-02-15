@@ -2,7 +2,7 @@ import fs, { promises as fsp } from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
-import { logDebug, normalizeForFsWindows, CoAppError, checkBinaries } from '../utils/utils';
+import { logDebug, normalizeForFsWindows, CoAppError, checkBinaries, sanitizeFilename, ensureUniqueFilename } from '../utils/utils';
 import { getLinuxDialog } from '../core/linux-dialog';
 import { register } from '../core/processes';
 
