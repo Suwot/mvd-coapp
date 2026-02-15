@@ -49,6 +49,7 @@ static int write_utf8_stdout(const wchar_t* wstr) {
     // Write to stdout without the trailing '\0'
     size_t len = (size_t)needed - 1;
     size_t out = fwrite(buf, 1, len, stdout);
+    fflush(stdout);
     free(buf);
     return (out == len) ? 0 : 1;
 }
@@ -310,6 +311,9 @@ int main() {
 
     hr = pfd->Show(nullptr);
     if (hr != S_OK) {
+        if (hr != HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+            fwprintf(stderr, L"Show failed: 0x%08X\n", hr);
+        }
         LocalFree(argv);
         pfd->Release();
         CoUninitialize();
@@ -319,6 +323,7 @@ int main() {
     IShellItem* psi = nullptr;
     hr = pfd->GetResult(&psi);
     if (FAILED(hr) || !psi) {
+        fwprintf(stderr, L"GetResult failed: 0x%08X\n", hr);
         LocalFree(argv);
         pfd->Release();
         CoUninitialize();
@@ -339,9 +344,11 @@ int main() {
                 wcscpy(tempBuffer, L"\\\\");
                 wcscat(tempBuffer, uncPath);
                 rc = write_utf8_stdout(tempBuffer);
+                if (rc != 0) fwprintf(stderr, L"write_utf8_stdout(unc) failed\n");
                 free(tempBuffer);
             } else {
-                rc = 1; // malloc failed
+                fwprintf(stderr, L"malloc failed for UNC path\n");
+                rc = 1; 
             }
             CoTaskMemFree(wz);
             goto cleanup;
@@ -357,7 +364,10 @@ int main() {
         } else {
             rc = write_utf8_stdout(outputPath);
         }
+        if (rc != 0) fwprintf(stderr, L"write_utf8_stdout failed\n");
         CoTaskMemFree(wz);
+    } else {
+        fwprintf(stderr, L"GetDisplayName failed: 0x%08X\n", hr);
     }
 cleanup:
     psi->Release();
