@@ -113,21 +113,23 @@ async function chooseDirectory(params) {
             logDebug('[FS] User cancelled directory picker');
             return { success: true, operation: 'chooseDirectory', cancelled: true, key: 'USER_CANCELLED' };
         }
-        if (key === 'ENOENT' || key === 'EIO') {
-            logDebug(`[FS] Picker failed (${key}), attempting writable fallback`);
-            const fallback = await findWritableFallbackFolder();
-            if (!fallback) throw new CoAppError('No writable folder found', 'EACCES');
-            
-            logDebug(`[FS] Using fallback directory: ${fallback}`);
-            return { 
-                success: true, 
-                operation: 'chooseDirectory', 
-                selectedPath: fallback, 
-                isAutoFallback: true, 
-                key 
-            };
+
+        logDebug(`[FS] chooseDirectory failed (${key}), attempting writable fallback`);
+        const fallback = await findWritableFallbackFolder();
+        if (!fallback) {
+            logDebug('[FS] No writable fallback found, throwing original error');
+            throw err;
         }
-        throw err;
+        
+        logDebug(`[FS] Using fallback directory: ${fallback}`);
+        return { 
+            success: true, 
+            operation: 'chooseDirectory', 
+            selectedPath: fallback, 
+            isAutoFallback: true, 
+            originalError: err.message,
+            key: 'directoryAccessFallback'
+        };
     }
 }
 
@@ -162,7 +164,26 @@ async function chooseSaveLocation(params) {
             logDebug('[FS] User cancelled save location picker');
             return { success: true, operation: 'chooseSaveLocation', cancelled: true, key: 'USER_CANCELLED' };
         }
-        throw err;
+
+        logDebug(`[FS] chooseSaveLocation failed (${err.key || err.code}), attempting writable fallback`);
+        const fallbackDir = await findWritableFallbackFolder();
+        if (!fallbackDir) throw err;
+
+        const finalFilename = sanitizeFilename(defaultName, 'video', 'mp4');
+        const uniqueName = ensureUniqueFilename(fallbackDir, finalFilename);
+        const fallbackPath = path.join(fallbackDir, uniqueName);
+
+        logDebug(`[FS] Using fallback save location: ${fallbackPath}`);
+        return {
+            success: true,
+            operation: 'chooseSaveLocation',
+            path: fallbackPath,
+            directory: fallbackDir,
+            filename: uniqueName,
+            isAutoFallback: true,
+            originalError: err.message,
+            key: 'directoryAccessFallback'
+        };
     }
 }
 
