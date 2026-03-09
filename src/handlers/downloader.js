@@ -45,8 +45,8 @@ export async function handleDownload(request, responder) {
         logDebug(`[Downloader] Canceling ${downloadId}`);
         const { child } = entry;
         try { if (child.stdin?.writable) child.stdin.write('q\n'); } catch { /* ignore */ }
-        setTimeout(() => !child.killed && child.kill('SIGTERM'), 5000);
-        setTimeout(() => !child.killed && child.kill('SIGKILL'), 15000);
+        setTimeout(() => !child.killed && child.kill('SIGTERM'), 15000);
+        setTimeout(() => !child.killed && child.kill('SIGKILL'), 35000);
         return { success: true, from: command, downloadId };
     }
 
