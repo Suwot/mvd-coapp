@@ -118,6 +118,7 @@ async function startDownload(params, responder) {
         timeout: !!spawnResult.timeout,
         key: spawnResult.key,
         error: spawnResult.error,
+        stderr: String(spawnResult.stderr || '').split(/\r?\n|\r(?!\n)/).filter(Boolean).slice(-20).join('\n'),
         substitutions: spawnResult.substitutions
     };
 
