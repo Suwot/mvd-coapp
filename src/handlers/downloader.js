@@ -60,7 +60,7 @@ async function startDownload(params, responder) {
     const resolvedDir = resolveSaveDir(saveDir);
     if (!resolvedDir) {
         logDebug(`[Downloader] Failed to resolve saveDir: ${saveDir}`);
-        return { success: false, command: 'download-error', downloadId, key: 'ENOENT', error: 'Invalid saveDir' };
+        return { success: false, command: 'download-finished', downloadId, key: 'ENOENT', error: 'Invalid saveDir' };
     }
 
     try {
@@ -72,7 +72,7 @@ async function startDownload(params, responder) {
     } catch (err) {
         const key = err.key || err.code || 'internalError';
         logDebug(`[Downloader] FS setup failed for ${resolvedDir}:`, err.message);
-				return { success: false, command: 'download-error', downloadId, key, error: err.message, substitutions: err.substitutions || [] };
+        return { success: false, command: 'download-finished', downloadId, key, error: err.message, substitutions: err.substitutions || [] };
     }
 
     // Disk space report (once at start as per original)
