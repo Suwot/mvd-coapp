@@ -60,7 +60,7 @@ async function startDownload(params, responder) {
     const resolvedDir = resolveSaveDir(saveDir);
     if (!resolvedDir) {
         logDebug(`[Downloader] Failed to resolve saveDir: ${saveDir}`);
-        return { success: false, command: 'download-finished', downloadId, key: 'ENOENT', error: 'Invalid saveDir' };
+        return { command: 'download-finished', downloadId, key: 'ENOENT', error: 'Invalid saveDir' };
     }
 
     try {
@@ -72,7 +72,13 @@ async function startDownload(params, responder) {
     } catch (err) {
         const key = err.key || err.code || 'internalError';
         logDebug(`[Downloader] FS setup failed for ${resolvedDir}:`, err.message);
-        return { success: false, command: 'download-finished', downloadId, key, error: err.message, substitutions: err.substitutions || [] };
+        return {
+            command: 'download-finished',
+            downloadId,
+            key,
+            error: err.message,
+            ...(Array.isArray(err.substitutions) && err.substitutions.length ? { substitutions: err.substitutions } : {})
+        };
     }
 
     // Disk space report (once at start as per original)
@@ -106,20 +112,21 @@ async function startDownload(params, responder) {
     });
 
     activeDownloads.delete(downloadId);
+    const stderr = String(spawnResult.stderr || '').split(/\r?\n|\r(?!\n)/).filter(Boolean).slice(-50).join('\n');
 
     const finalResult = {
         command: 'download-finished',
         downloadId,
-        success: spawnResult.success,
-        code: spawnResult.code,
-        signal: spawnResult.signal,
-        path: finalPath,
-        fileExists: fs.existsSync(finalPath),
-        timeout: !!spawnResult.timeout,
-        key: spawnResult.key,
-        error: spawnResult.error,
-        stderr: String(spawnResult.stderr || '').split(/\r?\n|\r(?!\n)/).filter(Boolean).slice(-20).join('\n'),
-        substitutions: spawnResult.substitutions
+        ...(spawnResult.success ? { success: true } : {}),
+        ...(spawnResult.code !== undefined && spawnResult.code !== null && spawnResult.code !== 0 ? { code: spawnResult.code } : {}),
+        ...(spawnResult.signal ? { signal: spawnResult.signal } : {}),
+        ...(fs.existsSync(finalPath) ? { path: finalPath } : {}),
+        ...(spawnResult.timeout ? { timeout: true } : {}),
+        ...(spawnResult.key ? { key: spawnResult.key } : {}),
+        ...(spawnResult.error ? { error: spawnResult.error } : {}),
+        ...(spawnResult.stdout ? { stdout: spawnResult.stdout } : {}),
+        ...(stderr ? { stderr } : {}),
+        ...(Array.isArray(spawnResult.substitutions) && spawnResult.substitutions.length ? { substitutions: spawnResult.substitutions } : {})
     };
 
     return finalResult;
