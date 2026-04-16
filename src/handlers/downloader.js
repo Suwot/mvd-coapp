@@ -60,7 +60,7 @@ async function startDownload(params, responder) {
     const resolvedDir = resolveSaveDir(saveDir);
     if (!resolvedDir) {
         logDebug(`[Downloader] Failed to resolve saveDir: ${saveDir}`);
-        return { command: 'download-finished', downloadId, key: 'ENOENT', error: 'Invalid saveDir' };
+        return { success: false, command: 'download-finished', downloadId, key: 'ENOENT', error: 'Invalid saveDir' };
     }
 
     try {
@@ -73,6 +73,7 @@ async function startDownload(params, responder) {
         const key = err.key || err.code || 'internalError';
         logDebug(`[Downloader] FS setup failed for ${resolvedDir}:`, err.message);
         return {
+            success: false,
             command: 'download-finished',
             downloadId,
             key,
@@ -112,16 +113,18 @@ async function startDownload(params, responder) {
     });
 
     activeDownloads.delete(downloadId);
+    const fileExists = fs.existsSync(finalPath);
     const stderr = String(spawnResult.stderr || '').split(/\r?\n|\r(?!\n)/).filter(Boolean).slice(-50).join('\n');
 
     const finalResult = {
         command: 'download-finished',
         downloadId,
-        ...(spawnResult.success ? { success: true } : {}),
-        ...(spawnResult.code !== undefined && spawnResult.code !== null && spawnResult.code !== 0 ? { code: spawnResult.code } : {}),
+        success: spawnResult.success,
+        ...(spawnResult.code !== undefined ? { code: spawnResult.code } : {}),
         ...(spawnResult.signal ? { signal: spawnResult.signal } : {}),
-        ...(fs.existsSync(finalPath) ? { path: finalPath } : {}),
-        ...(spawnResult.timeout ? { timeout: true } : {}),
+        ...(fileExists ? { path: finalPath } : {}),
+        fileExists,
+        timeout: !!spawnResult.timeout,
         ...(spawnResult.key ? { key: spawnResult.key } : {}),
         ...(spawnResult.error ? { error: spawnResult.error } : {}),
         ...(spawnResult.stdout ? { stdout: spawnResult.stdout } : {}),
