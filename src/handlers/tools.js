@@ -6,6 +6,7 @@ import { BINARIES, TEMP_DIR, DEFAULT_TOOL_TIMEOUT, PREVIEW_TOOL_TIMEOUT } from '
 import { register } from '../core/processes';
 
 const MAX_HEAD_TAIL = 128 * 1024; // 128KB
+const STDERR_PROGRESS_FLUSH_MS = 500;
 
 const quoteForShell = (arg) => {
     const s = String(arg);
@@ -95,7 +96,7 @@ export async function handleRunTool(params, responder, hooks = {}) {
                 if (onStderr) onStderr(d);
                 if (progressCommand) {
                     stderrBuffer += chunk;
-                    if (!stderrTimer) stderrTimer = setTimeout(flushStderr, 100);
+                    if (!stderrTimer) stderrTimer = setTimeout(flushStderr, STDERR_PROGRESS_FLUSH_MS);
                 }
             });
 
