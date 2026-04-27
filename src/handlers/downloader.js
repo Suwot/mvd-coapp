@@ -57,7 +57,7 @@ export async function handleDownload(request, responder) {
 }
 
 async function startDownload(params, responder) {
-    const { downloadId, argsBeforeOutput, saveDir, filename, container, allowOverwrite = false, url } = params;
+    const { downloadId, argsBeforeOutput, inlineInputs, saveDir, filename, container, allowOverwrite = false } = params;
     logDebug(`[Downloader] Starting download ${downloadId} (name: ${filename}, dir: ${saveDir})`);
     
     const resolvedDir = resolveSaveDir(saveDir);
@@ -108,8 +108,9 @@ async function startDownload(params, responder) {
     const spawnResult = await handleRunTool({
         tool: 'ffmpeg',
         args: [...argsBeforeOutput, spawnPath],
+        inlineInputs,
         timeoutMs: 0,
-        job: { kind: 'download', id: downloadId, url },
+        job: { kind: 'download', id: downloadId },
         progressCommand: 'download-progress'
     }, responder, {
         onSpawn: (child) => activeDownloads.set(downloadId, { child, finalPath })
