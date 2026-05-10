@@ -16,7 +16,7 @@ COMPATIBILITY:
 
 RESOURCES:
 - Source Code: https://github.com/suwot/mvd-coapp
-- Website: https://www.maxvideodownloader.pro/?utm_source=mac-dmg&utm_medium=readme
+- Website: https://maxvideodownloader.pro/?utm_source=mac-dmg&utm_medium=readme
 
 LICENSE:
 GPL v3 (GPL-3.0-only) - Free and Open Source. Attribution required.

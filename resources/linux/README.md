@@ -34,7 +34,7 @@ curl -sSLf https://github.com/Suwot/mvd-coapp/releases/latest/download/install.s
 
 ## Links
 - Source Code: https://github.com/Suwot/mvd-coapp
-- Website: https://www.maxvideodownloader.pro/?utm_source=linux-tar&utm_medium=readme
+- Website: https://maxvideodownloader.pro/?utm_source=linux-tar&utm_medium=readme
 
 ## License
 GPL v3 (GPL-3.0-only) - Free and Open Source. Attribution required.
