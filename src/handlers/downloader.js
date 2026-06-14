@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import http from 'http';
+import https from 'https';
 import { logDebug, getFreeDiskSpace, normalizeForFsWindows, sanitizeFilename, ensureUniqueFilename } from '../utils/utils';
 import { handleRunTool } from './tools';
 
@@ -34,6 +36,148 @@ function buildUiPath(fullPath) {
     return fullPath;
 }
 
+function normalizeDownloadHeaders(headers) {
+    if (!headers || typeof headers !== 'object') return null;
+
+    const normalized = {};
+    for (const [name, value] of Object.entries(headers)) {
+        if (name === 'timestamp' || value == null) continue;
+        normalized[name] = String(value);
+    }
+    return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
+function isRedirectStatus(statusCode) {
+    return statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308;
+}
+
+async function startDirectDownload(request, responder, context) {
+    const { downloadId, url, headers } = request;
+    const { finalPath, finalFilename } = context;
+    const normalizedHeaders = normalizeDownloadHeaders(headers);
+    const writePath = normalizeForFsWindows(finalPath);
+    let requestHandle = null;
+    let responseHandle = null;
+    let writeStream = null;
+    let downloadedBytes = 0;
+    let totalBytes = null;
+    let lastProgressAt = Date.now();
+
+    const controller = {
+        killed: false,
+        stdin: null,
+        kill() {
+            if (this.killed) return false;
+            this.killed = true;
+            const abortError = new Error('Download canceled');
+            abortError.code = 'ABORT_ERR';
+            requestHandle?.destroy(abortError);
+            responseHandle?.destroy(abortError);
+            writeStream?.destroy(abortError);
+            return true;
+        }
+    };
+
+    activeDownloads.set(downloadId, { child: controller, finalPath });
+    logDebug('[Downloader] Starting direct download', { downloadId, url, finalPath });
+
+    try {
+        await new Promise((resolve, reject) => {
+            const requestUrl = (currentUrl, redirectCount = 0) => {
+                let parsedUrl;
+                try {
+                    parsedUrl = new URL(currentUrl);
+                } catch {
+                    reject(new Error(`Invalid direct download URL: ${currentUrl}`));
+                    return;
+                }
+
+                const transport = parsedUrl.protocol === 'https:' ? https : http;
+                requestHandle = transport.get(currentUrl, normalizedHeaders ? { headers: normalizedHeaders } : undefined, (response) => {
+                    responseHandle = response;
+
+                    if (isRedirectStatus(response.statusCode) && response.headers.location) {
+                        response.resume();
+                        if (redirectCount >= 5) {
+                            reject(new Error('Direct download redirect limit exceeded'));
+                            return;
+                        }
+
+                        if (controller.killed) {
+                            const abortError = new Error('Download canceled');
+                            abortError.code = 'ABORT_ERR';
+                            reject(abortError);
+                            return;
+                        }
+
+                        requestUrl(new URL(response.headers.location, currentUrl).toString(), redirectCount + 1);
+                        return;
+                    }
+
+                    if ((response.statusCode || 0) < 200 || (response.statusCode || 0) >= 300) {
+                        response.resume();
+                        reject(new Error(`Direct download failed with HTTP ${response.statusCode || 0}`));
+                        return;
+                    }
+
+                    const parsedTotalBytes = Number(response.headers['content-length']);
+                    totalBytes = Number.isFinite(parsedTotalBytes) && parsedTotalBytes > 0 ? parsedTotalBytes : null;
+                    writeStream = fs.createWriteStream(writePath);
+
+                    response.on('data', (chunk) => {
+                        downloadedBytes += chunk.length;
+                        if (!totalBytes) return;
+                        const now = Date.now();
+                        if ((now - lastProgressAt) < 500) return;
+                        lastProgressAt = now;
+                        responder.send({
+                            command: 'download-progress',
+                            downloadId,
+                            downloadedBytes,
+                            totalBytes,
+                            progress: Math.min(99.999, Math.round((downloadedBytes / totalBytes) * 100000) / 1000),
+                            elapsedTime: Math.round((now - context.startedAt) / 1000)
+                        });
+                    });
+
+                    response.on('error', reject);
+                    writeStream.on('error', reject);
+                    writeStream.on('finish', resolve);
+                    response.pipe(writeStream);
+                });
+
+                requestHandle.on('error', reject);
+            };
+
+            requestUrl(url);
+        });
+
+        return {
+            command: 'download-finished',
+            downloadId,
+            success: true,
+            path: finalPath,
+            fileExists: true,
+            filename: finalFilename,
+            totalBytes: downloadedBytes || totalBytes || 0
+        };
+    } catch (error) {
+        controller.killed = true;
+        try { if (fs.existsSync(writePath)) fs.unlinkSync(writePath); } catch { /* ignore best-effort cleanup */  }
+        logDebug('[Downloader] Direct download failed', { downloadId, url, finalPath, error: error?.message || String(error) });
+        return {
+            command: 'download-finished',
+            downloadId,
+            success: false,
+            fileExists: false,
+            ...(error?.code === 'ABORT_ERR' ? { canceled: true } : {}),
+            error: error?.message || 'Direct download failed'
+        };
+    } finally {
+        activeDownloads.delete(downloadId);
+    }
+}
+
 // --- Main Handler ---
 export async function handleDownload(request, responder) {
     const { command, downloadId } = request;
@@ -57,7 +201,7 @@ export async function handleDownload(request, responder) {
 }
 
 async function startDownload(params, responder) {
-    const { downloadId, argsBeforeOutput, inlineInputs, saveDir, filename, container, allowOverwrite = false } = params;
+    const { command, downloadId, argsBeforeOutput, inlineInputs, saveDir, filename, container, allowOverwrite = false } = params;
     logDebug(`[Downloader] Starting download ${downloadId} (name: ${filename}, dir: ${saveDir})`);
     
     const resolvedDir = resolveSaveDir(saveDir);
@@ -104,6 +248,14 @@ async function startDownload(params, responder) {
 
     logDebug(`[Downloader] Path resolved: ${finalPath}`);
     responder.send({ command: 'filename-resolved', downloadId, resolvedFilename: finalFilename, path: uiPath });
+
+    if (command === 'direct-download') {
+        return startDirectDownload(params, responder, {
+            finalPath,
+            finalFilename,
+            startedAt: Date.now()
+        });
+    }
 
     const spawnResult = await handleRunTool({
         tool: 'ffmpeg',

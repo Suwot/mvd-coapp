@@ -74,6 +74,7 @@ export const WINDOWS_RESERVED_NAMES = new Set([
 
 export const VALIDATION_SCHEMA = {
     'download-v2': ['downloadId', 'argsBeforeOutput', 'saveDir'],
+    'direct-download': ['downloadId', 'url', 'saveDir', 'filename'],
     'cancel-download-v2': ['downloadId'],
     'fileSystem': ['operation'],
     'runTool': ['tool', 'args']

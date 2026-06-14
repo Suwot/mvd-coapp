@@ -115,7 +115,7 @@ export function getConnectionInfo() {
         logsFolder: TEMP_DIR,
         logFile: LOG_FILE,
         logFileSize,
-        capabilities: ['download-v2', 'cancel-download-v2', 'fileSystem', 'kill-processing', 'runTool', 'get-disk-space']
+        capabilities: ['download-v2', 'direct-download', 'cancel-download-v2', 'fileSystem', 'kill-processing', 'runTool', 'get-disk-space']
     };
 }
 

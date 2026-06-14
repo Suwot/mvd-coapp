@@ -11,6 +11,7 @@ import { clearProcessing, getActiveProcessCount, setProcessCountCallback } from 
 
 const HANDLERS = {
     'download-v2': handleDownload,
+    'direct-download': handleDownload,
     'cancel-download-v2': handleDownload,
     'fileSystem': handleFileSystem,
     'runTool': handleRunTool,
