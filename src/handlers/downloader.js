@@ -270,7 +270,7 @@ async function startDownload(params, responder) {
 
     activeDownloads.delete(downloadId);
     const fileExists = fs.existsSync(finalPath);
-    const stderr = String(spawnResult.stderr || '').split(/\r?\n|\r(?!\n)/).filter(Boolean).slice(-50).join('\n');
+    const stderr = String(spawnResult.stderr || '').split(/\r?\n|\r(?!\n)/).filter(Boolean).slice(-20).join('\n');
 
     const finalResult = {
         command: 'download-finished',
