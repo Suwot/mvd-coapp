@@ -1,8 +1,11 @@
 # CoApp Graphify Scope
 
-Use `coapp/graphify-out/` for native-host routing, handlers, filesystem work,
-FFmpeg invocation, and packaging questions. Refresh it with `npm run graphify`.
+For cross-file native-host routing, handlers, filesystem work, FFmpeg
+invocation, and packaging questions, `coapp/graphify-out/` can be a useful
+navigation aid. Refresh it with `npm run graphify` when a later relationship
+query would benefit.
 
-Do not use it for extension runtime, mvd-libav.js, or FFmpeg-builder internals.
-Graph output is ignored and is navigation only; verify operational behavior in
-the real source and build scripts.
+For exact symbols, local control flow, or operational behavior, start with
+targeted source and build-script inspection. This graph does not cover
+extension runtime, mvd-libav.js, or FFmpeg-builder internals. Graph output is
+ignored and is navigation only.
