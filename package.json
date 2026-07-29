@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "build": "./build-coapp.sh build",
-    "dist": "./build-coapp.sh dist"
+    "dist": "./build-coapp.sh dist",
+    "graphify": "graphify update ."
   },
   "dependencies": {
     "dbus-next": "^0.10.0",
