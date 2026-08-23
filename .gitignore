@@ -7,7 +7,6 @@ host
 
 # Node modules and miscellaneous
 node_modules/
-graphify-out/
 research/
 
 # OS files
