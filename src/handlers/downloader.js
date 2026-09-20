@@ -116,7 +116,10 @@ async function startDirectDownload(request, responder, context) {
 
                     if ((response.statusCode || 0) < 200 || (response.statusCode || 0) >= 300) {
                         response.resume();
-                        reject(new Error(`Direct download failed with HTTP ${response.statusCode || 0}`));
+                        const error = new Error(`Direct download failed with HTTP ${response.statusCode || 0}`);
+                        error.httpStatus = Number(response.statusCode) || 0;
+                        error.responseHeaders = response.headers;
+                        reject(error);
                         return;
                     }
 
@@ -171,6 +174,8 @@ async function startDirectDownload(request, responder, context) {
             success: false,
             fileExists: false,
             ...(error?.code === 'ABORT_ERR' ? { canceled: true } : {}),
+            ...(Number.isFinite(error?.httpStatus) ? { httpStatus: error.httpStatus } : {}),
+            ...(error?.responseHeaders ? { responseHeaders: error.responseHeaders } : {}),
             error: error?.message || 'Direct download failed'
         };
     } finally {
