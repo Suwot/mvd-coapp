@@ -8,6 +8,7 @@ import { register } from '../core/processes';
 
 const MAX_HEAD_TAIL = 128 * 1024; // 128KB
 const STDERR_PROGRESS_FLUSH_MS = 500;
+const SIGTERM_STDERR_MARKER = 'received signal 15';
 const LOOPBACK_HOST = '127.0.0.1';
 
 const quoteForShell = (arg) => {
@@ -16,15 +17,52 @@ const quoteForShell = (arg) => {
     return `'${s.replace(/'/g, "'\\''")}'`;
 };
 
-const truncateOutput = (output, prefix) => {
-    const buffer = Buffer.from(String(output ?? ''), 'utf8');
-    const totalBytes = buffer.length;
+const truncateOutput = (buffer, prefix, totalBytes = buffer.length) => {
     const truncated = totalBytes > 2 * MAX_HEAD_TAIL;
     const head = buffer.subarray(0, MAX_HEAD_TAIL).toString('utf8');
-    const tail = truncated ? buffer.subarray(totalBytes - MAX_HEAD_TAIL).toString('utf8') : '';
+    const tail = truncated ? buffer.subarray(-MAX_HEAD_TAIL).toString('utf8') : '';
     const marker = truncated ? `\n...[truncated ${totalBytes - 2 * MAX_HEAD_TAIL} bytes]...\n` : '';
     return { [prefix]: head + marker + tail, [prefix + 'Truncated']: truncated, [prefix + 'TotalSize']: totalBytes };
 };
+
+function createDownloadOutputCapture(prefix) {
+    let head;
+    let tail;
+    let tailOffset = 0;
+    let totalBytes = 0;
+
+    return {
+        append(text) {
+            let bytes = Buffer.from(text, 'utf8');
+            const chunkBytes = bytes.length;
+            if (totalBytes < MAX_HEAD_TAIL) {
+                head ||= Buffer.allocUnsafe(MAX_HEAD_TAIL);
+                bytes = bytes.subarray(bytes.copy(head, totalBytes));
+            }
+            totalBytes += chunkBytes;
+            if (!bytes.length) return;
+
+            tail ||= Buffer.allocUnsafe(MAX_HEAD_TAIL);
+            if (bytes.length >= MAX_HEAD_TAIL) {
+                bytes.copy(tail, 0, bytes.length - MAX_HEAD_TAIL);
+                tailOffset = 0;
+                return;
+            }
+            const written = bytes.copy(tail, tailOffset);
+            bytes.copy(tail, 0, written);
+            tailOffset = (tailOffset + bytes.length) % MAX_HEAD_TAIL;
+        },
+        read() {
+            const prefixBytes = head ? head.subarray(0, totalBytes) : Buffer.alloc(0);
+            if (totalBytes > 2 * MAX_HEAD_TAIL) {
+                const buffer = Buffer.concat([prefixBytes, tail.subarray(tailOffset), tail.subarray(0, tailOffset)]);
+                return truncateOutput(buffer, prefix, totalBytes);
+            }
+            const buffer = tail ? Buffer.concat([prefixBytes, tail.subarray(0, totalBytes - MAX_HEAD_TAIL)]) : prefixBytes;
+            return { [prefix]: buffer.toString('utf8'), [prefix + 'Truncated']: false, [prefix + 'TotalSize']: totalBytes };
+        }
+    };
+}
 
 async function closeServer(server) {
     if (!server) return;
@@ -207,6 +245,14 @@ export async function handleRunTool(params, responder, hooks = {}) {
 
             let stdout = '';
             let stderr = '';
+            const downloadStdout = job?.kind === 'download' ? createDownloadOutputCapture('stdout') : null;
+            const downloadStderr = job?.kind === 'download' ? createDownloadOutputCapture('stderr') : null;
+            let receivedSigterm = false;
+            let stderrSuffix = '';
+            const readOutput = () => ({
+                ...(downloadStdout?.read() ?? truncateOutput(Buffer.from(stdout, 'utf8'), 'stdout')),
+                ...(downloadStderr?.read() ?? truncateOutput(Buffer.from(stderr, 'utf8'), 'stderr'))
+            });
             let timeoutHandle = null;
             let stderrBuffer = '';
             let stderrTimer = null;
@@ -232,15 +278,28 @@ export async function handleRunTool(params, responder, hooks = {}) {
                     if (!child.killed) {
                         logDebug(`[Tools] Timeout reached (${effectiveTimeout}ms): ${tool}`);
                         child.kill('SIGTERM');
-                        void finish({ success: false, timeout: true, ...truncateOutput(stdout, 'stdout'), ...truncateOutput(stderr, 'stderr'), code: null, signal: 'SIGTERM', key: 'ETIMEDOUT' });
+                        void finish({ success: false, timeout: true, ...readOutput(), code: null, signal: 'SIGTERM', key: 'ETIMEDOUT' });
                     }
                 }, effectiveTimeout);
             }
 
-            child.stdout?.on('data', d => stdout += d.toString());
+            child.stdout?.on('data', d => {
+                const chunk = d.toString();
+                if (downloadStdout) downloadStdout.append(chunk);
+                else stdout += chunk;
+            });
             child.stderr?.on('data', d => {
                 const chunk = d.toString();
-                stderr += chunk;
+                if (downloadStderr) {
+                    downloadStderr.append(chunk);
+                    if (!receivedSigterm) {
+                        const text = stderrSuffix + chunk;
+                        receivedSigterm = text.includes(SIGTERM_STDERR_MARKER);
+                        stderrSuffix = text.slice(1 - SIGTERM_STDERR_MARKER.length);
+                    }
+                } else {
+                    stderr += chunk;
+                }
                 if (onStderr) onStderr(d);
                 if (progressCommand) {
                     stderrBuffer += chunk;
@@ -253,11 +312,11 @@ export async function handleRunTool(params, responder, hooks = {}) {
 
                 logDebug(`[Tools] Finished ${tool}${job ? ` (${job.kind})` : ''} with code ${code}${signal ? `, signal ${signal}` : ''}`);
                 
-                const result = { success: code === 0, code, signal, ...truncateOutput(stdout, 'stdout'), ...truncateOutput(stderr, 'stderr') };
+                const result = { success: code === 0, code, signal, ...readOutput() };
                 
                 // Map exit state to unique keys
                 // FFmpeg/FFprobe might exit with a code (e.g. 251, 255) instead of a signal when interrupted
-                if (signal || child.killed || stderr.includes('received signal 15')) {
+                if (signal || child.killed || receivedSigterm || stderr.includes(SIGTERM_STDERR_MARKER)) {
                     result.key = 'USER_CANCELLED';
                 } else if (!result.success && !result.key) {
                     result.key = 'EIO';
@@ -286,8 +345,7 @@ export async function handleRunTool(params, responder, hooks = {}) {
                     success: false, 
                     error: err.message, 
                     key: err.code === 'ENOENT' ? 'ENOENT' : 'EIO', 
-                    ...truncateOutput(stdout, 'stdout'), 
-                    ...truncateOutput(stderr, 'stderr')
+                    ...readOutput()
                 });
             });
         });
