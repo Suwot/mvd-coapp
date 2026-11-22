@@ -331,10 +331,14 @@ build_binary() {
 	local ffmpeg_src="$BIN_DIR/$ffmpeg_plat"
 
 	log_info "  -> Copying FFmpeg binaries from $ffmpeg_plat..."
-	if [[ -d "$ffmpeg_src" && -f "$ffmpeg_src/ffmpeg$ext" && -f "$ffmpeg_src/ffprobe$ext" ]]; then
+	if [[ -d "$ffmpeg_src" && -f "$ffmpeg_src/ffmpeg$ext" ]]; then
 		cp "$ffmpeg_src"/* "$build_dir/"
 		validate_binary_file "$target" "$build_dir/ffmpeg$ext" || true
-		validate_binary_file "$target" "$build_dir/ffprobe$ext" || true
+		if [[ -f "$build_dir/ffprobe$ext" ]]; then
+			validate_binary_file "$target" "$build_dir/ffprobe$ext" || true
+		else
+			log_warn "Optional ffprobe binary not found in $ffmpeg_src; continuing without it."
+		fi
 	else
 		log_warn "FFmpeg binaries not found in $ffmpeg_src. Build will lack ffmpeg!"
 	fi

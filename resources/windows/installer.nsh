@@ -360,7 +360,7 @@ Section -MainProgram
 	${EndIf}
 	
 	ClearErrors
-	File "ffprobe.exe"
+	File /nonfatal "ffprobe.exe"
 	${If} ${Errors}
 		Delete /REBOOTOK "$INSTDIR\ffprobe.exe"
 		ClearErrors

@@ -65,9 +65,9 @@ export function reportLogStatus(responder) {
 }
 
 /**
- * Check if required binaries are present.
+ * Check if required binaries are present. FFprobe is optional until release packaging drops it.
  * If name is provided, returns the path or throws CoAppError.
- * If no name is provided, returns a status object for all platform-specific binaries.
+ * If no name is provided, returns a status object for required platform-specific binaries.
  */
 export function checkBinaries(name) {
     if (name) {
@@ -76,7 +76,7 @@ export function checkBinaries(name) {
         throw new CoAppError(`${name} not found, please reinstall`, 'binaryNotFound', [name]);
     }
 
-    const missing = Object.keys(BINARIES).filter(k => BINARIES[k] && !fs.existsSync(BINARIES[k]));
+    const missing = Object.keys(BINARIES).filter(k => k !== 'ffprobe' && BINARIES[k] && !fs.existsSync(BINARIES[k]));
     if (missing.length > 0) {
         const namesStr = missing.join(', ');
         return {
